@@ -1,0 +1,16 @@
+{
+  "TapeSignal": "0x1402a697c444c912ad17aa0717b230af30b184a1",
+  "MockAMM": "0xee84a33c17c103ea46592b194978245b2b630336",
+  "MockTreasury": "0xc58dd2c196fade46c500fd94ff6877884c734baf",
+  "TipRouter": "0x5191adb59967cb000c9938e441ccd92c329ea8b1",
+  "USDG": "0x89e4bbf69011c8a3069df681dbc714cd9df21875",
+  "NVDAx": "0x85f8db7feabb4ba581376a73d6e1bc74834be919",
+  "TSLAx": "0x240c6c2c3ecc916cfdb9ba00e789e1a57c8fc331",
+  "SPYx": "0x614c4c927db3f5f4e0f3a1b151d2dfb4837b10fc",
+  "AAPLx": "0xeb6e91a171647768d45f5b820d63603f14bf9f33",
+  "COINx": "0x6539a22ffde07186abb028bb7f03885ccee82e92",
+  "_chainId": 1952,
+  "_rpc": "https://testrpc.xlayer.tech",
+  "_explorer": "https://www.oklink.com/x-layer-testnet",
+  "_deployer": "0x6dF5886a16CE3C9f83B30b106C3761212DB175f8"
+}
