@@ -26,9 +26,12 @@ async function logsSince(key: string, from: bigint, head: bigint, fetch: (a: big
   while (start <= head) {
     const end = start + WINDOW - 1n > head ? head : start + WINDOW - 1n;
     out.push(...(await fetch(start, end)));
+    // Bank each window as it lands. Saving only at the end meant a scan that
+    // took longer than the refresh interval restarted forever and never
+    // reached the newest tip.
+    seen.set(key, { to: end, logs: out.slice() });
     start = end + 1n;
   }
-  seen.set(key, { to: head, logs: out });
   return out;
 }
 
@@ -52,6 +55,7 @@ export function Overlay({ handle }: { handle: string }) {
   const { data } = useQuery({
     queryKey: ["overlay", handle],
     refetchInterval: 5000,
+    staleTime: 2000,
     queryFn: async (): Promise<Card[]> => {
       const account = (await client.readContract({
         address: ADDR.TipRouter,
