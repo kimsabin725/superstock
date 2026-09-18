@@ -5,3 +5,7 @@ broadcast/
 .env.*
 node_modules/
 *.log
+
+.venv/
+keeper/keeper.db
+keeper/keeper.jsonl
