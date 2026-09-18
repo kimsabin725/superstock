@@ -9,3 +9,7 @@ node_modules/
 .venv/
 keeper/keeper.db
 keeper/keeper.jsonl
+keeper/keeper.out
+keeper/keeper.err
+web/.next/
+web/node_modules/
