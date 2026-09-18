@@ -16,6 +16,8 @@ export const xlayerTestnet = defineChain({
 export const ADDR = addresses as unknown as Record<string, `0x${string}`>;
 export const ABI = abis as unknown as Record<string, Abi>;
 
+export const FROM_BLOCK = BigInt(addresses._fromBlock ?? 0);
+
 export const POOL = ["NVDAx", "TSLAx", "SPYx", "AAPLx", "COINx"] as const;
 export type Ticker = (typeof POOL)[number];
 

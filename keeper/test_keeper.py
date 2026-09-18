@@ -19,12 +19,15 @@ import keeper as K
 import sources as src
 
 
+ALLOW = [True]
+
+
 class FakeFn:
     def __init__(self, sink, name, args):
         self.sink, self.name, self.args = sink, name, args
 
     def call(self):
-        return (True, 0) if self.name == "check" else None
+        return (ALLOW[0], 0) if self.name == "check" else None
 
 
 class FakeFunctions:
@@ -43,6 +46,15 @@ class FakeContract:
 
 
 class FakeChain:
+    onchain = {"session": 0, "halt": 0, "ca_at": 0}
+    price = 0
+
+    def onchain_signal(self, sid):
+        return dict(self.onchain)
+
+    def venue_price(self, token):
+        return self.price
+
     def __init__(self):
         self.sent = []
         self.signal = FakeContract(self.sent)
@@ -184,6 +196,29 @@ def main() -> int:
     k.publish(force=True)
     sigs = dict(zip(K.POOL, k.chain.sent[-1][1][1]))
     ok &= check("an issuer halt is reported too", sigs["TSLAx"][1] == 210)
+
+    # 12a. a redeployed venue must not inherit a mark the keeper merely remembers
+    k = fresh_keeper()
+    k.chain.onchain = {"session": 2, "halt": 0, "ca_at": 0}   # chain says closed
+    k.sessions = {s: 0 for s in K.POOL}                        # we just read open
+    wrote = k.publish()
+    ok &= check("a signal is written when the chain disagrees", wrote)
+    k.chain.onchain = {"session": 0, "halt": 0, "ca_at": 0}
+    before = len(k.chain.sent)
+    k.publish()
+    ok &= check("and withheld when the chain already agrees", len(k.chain.sent) == before)
+
+    # 12. parking cash the next pass would immediately un-park is pure waste
+    k = fresh_keeper()
+    k.accounts = ["0x" + "22" * 20]
+    ALLOW[0] = True
+    before = len(k.chain.sent)
+    k.loop_sweep()
+    ok &= check("an open market means no parking", len(k.chain.sent) == before)
+    ALLOW[0] = False
+    k.loop_buys()
+    ok &= check("and a shut market means no pointless buy", len(k.chain.sent) == before)
+    ALLOW[0] = True
 
     print("\n" + ("all keeper checks passed" if ok else "KEEPER CHECKS FAILED"))
     return 0 if ok else 1

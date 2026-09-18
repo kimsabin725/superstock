@@ -2,7 +2,7 @@
 
 import { useQuery } from "@tanstack/react-query";
 import { createPublicClient, http, parseAbiItem, formatUnits } from "viem";
-import { ABI, ADDR, xlayerTestnet } from "@/lib/chain";
+import { ABI, ADDR, FROM_BLOCK, xlayerTestnet } from "@/lib/chain";
 import { id, TICKER_BY_ID } from "@/lib/hooks";
 
 /** The piece a platform drops into a broadcast: transparent, no chrome, reads
@@ -11,6 +11,27 @@ import { id, TICKER_BY_ID } from "@/lib/hooks";
 
 const client = createPublicClient({ chain: xlayerTestnet, transport: http() });
 
+// This RPC answers eth_getLogs for 100 blocks at a time. Asking for the whole
+// chain fails outright, so the range is walked in windows the node will answer,
+// and only ever forward: what we already read stays read.
+const WINDOW = 100n;
+
+type Scan = { to: bigint; logs: unknown[] };
+const seen = new Map<string, Scan>();
+
+async function logsSince(key: string, from: bigint, head: bigint, fetch: (a: bigint, b: bigint) => Promise<unknown[]>) {
+  const prev = seen.get(key);
+  let start = prev ? prev.to + 1n : from;
+  const out = prev ? prev.logs.slice() : [];
+  while (start <= head) {
+    const end = start + WINDOW - 1n > head ? head : start + WINDOW - 1n;
+    out.push(...(await fetch(start, end)));
+    start = end + 1n;
+  }
+  seen.set(key, { to: head, logs: out });
+  return out;
+}
+
 const TIPPED = parseAbiItem(
   "event Tipped(bytes32 indexed platformId, bytes32 indexed creatorId, address indexed fan, uint256 amount, uint256 fee, uint8 symbolChoice, bytes32 msgHash, uint256 tipId)",
 );
@@ -18,12 +39,13 @@ const BOUGHT = parseAbiItem(
   "event Bought(bytes32 indexed symbolId, uint256 usdgIn, uint256 tokensOut, uint256 priceRefE8)",
 );
 
+type Fill = { ticker: string; shares: bigint };
+
 type Card = {
   tipId: bigint;
   fan: `0x${string}`;
   amount: bigint;
-  ticker?: string;
-  shares?: bigint;
+  fills: Fill[];
 };
 
 export function Overlay({ handle }: { handle: string }) {
@@ -38,30 +60,45 @@ export function Overlay({ handle }: { handle: string }) {
         args: [id(handle)],
       })) as `0x${string}`;
 
-      const tips = await client.getLogs({
-        address: ADDR.TipRouter,
-        event: TIPPED,
-        args: { creatorId: id(handle) },
-        fromBlock: 0n,
-      });
+      const head = await client.getBlockNumber();
 
-      const buys =
-        account && account !== "0x0000000000000000000000000000000000000000"
-          ? await client.getLogs({ address: account, event: BOUGHT, fromBlock: 0n })
-          : [];
+      const tips = (await logsSince(`tips:${handle}`, FROM_BLOCK, head, (a, b) =>
+        client.getLogs({
+          address: ADDR.TipRouter,
+          event: TIPPED,
+          args: { creatorId: id(handle) },
+          fromBlock: a,
+          toBlock: b,
+        }),
+      )) as Awaited<ReturnType<typeof client.getLogs<typeof TIPPED>>>;
 
-      // pair each tip with the buy it turned into, newest first
-      const cards = tips.slice(-6).reverse().map((t): Card => {
-        const match = buys.find((b) => b.blockNumber >= t.blockNumber);
-        return {
-          tipId: t.args.tipId!,
-          fan: t.args.fan!,
-          amount: t.args.amount!,
-          ticker: match ? TICKER_BY_ID[match.args.symbolId!.toLowerCase()] : undefined,
-          shares: match?.args.tokensOut,
-        };
-      });
-      return cards;
+      const live = account && account !== "0x0000000000000000000000000000000000000000";
+      const buys = live
+        ? ((await logsSince(`buys:${account}`, FROM_BLOCK, head, (a, b) =>
+            client.getLogs({ address: account, event: BOUGHT, fromBlock: a, toBlock: b }),
+          )) as Awaited<ReturnType<typeof client.getLogs<typeof BOUGHT>>>)
+        : [];
+
+      // A tip split across two names produces two buys, and showing one of them
+      // would be a half-truth. Each tip claims the buys that happened after it
+      // and before the next one.
+      const ordered = tips.slice().sort((a, b) => Number(a.blockNumber! - b.blockNumber!));
+      return ordered
+        .map((t, i): Card => {
+          const next = ordered[i + 1]?.blockNumber;
+          const fills = buys
+            .filter(
+              (b) =>
+                b.blockNumber! >= t.blockNumber! && (next === undefined || b.blockNumber! < next),
+            )
+            .map((b) => ({
+              ticker: TICKER_BY_ID[b.args.symbolId!.toLowerCase()] ?? "?",
+              shares: b.args.tokensOut!,
+            }));
+          return { tipId: t.args.tipId!, fan: t.args.fan!, amount: t.args.amount!, fills };
+        })
+        .reverse()
+        .slice(0, 6);
     },
   });
 
@@ -81,11 +118,15 @@ export function Overlay({ handle }: { handle: string }) {
                 ${Number(formatUnits(c.amount, 6)).toFixed(2)}
               </span>
             </div>
-            <p className="mt-1 text-[13px] text-accent">
-              {c.ticker && c.shares !== undefined
-                ? `bought ${Number(formatUnits(c.shares, 18)).toFixed(6)} ${c.ticker}`
-                : "waiting for the open"}
-            </p>
+            {c.fills.length === 0 ? (
+              <p className="mt-1 text-[13px] text-hold">waiting for the open</p>
+            ) : (
+              <p className="mt-1 text-[13px] text-accent">
+                {c.fills
+                  .map((f) => `${Number(formatUnits(f.shares, 18)).toFixed(6)} ${f.ticker}`)
+                  .join("  ·  ")}
+              </p>
+            )}
           </div>
         ))}
       </div>

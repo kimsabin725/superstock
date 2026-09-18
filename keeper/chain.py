@@ -28,26 +28,41 @@ class Chain:
         self.router = self._c("TipRouter", d["TipRouter"])
         self.account_abi = _abi("CreatorAccount")
         self._nonce: int | None = None
+        self._scanned_to: int = 0
+        self._accounts: dict[str, bool] = {}
 
     def _c(self, name: str, address: str):
         return self.w3.eth.contract(address=Web3.to_checksum_address(address), abi=_abi(name))
 
-    # Public RPCs reject an unbounded log query, so the scan starts at the block
-    # the router was deployed in and walks forward in windows the node accepts.
-    LOG_WINDOW = 5_000
+    # This RPC answers eth_getLogs for at most 100 blocks at a time, and says so
+    # plainly. Ask for more and the whole call fails, so the scan is chunked and
+    # backs off if another node draws the line somewhere lower.
+    LOG_WINDOW = 100
 
     def creator_accounts(self) -> list[str]:
-        """Every creator the router has announced, read from its own events."""
-        start = int(self.addresses.get("_fromBlock", 0))
+        """Every creator the router has announced, read from its own events.
+
+        The history is walked once from the router's deployment block and then
+        only ever forward, so the cost of this does not grow with the chain."""
         head = self.w3.eth.block_number
-        found: list[str] = []
+        start = self._scanned_to + 1 if self._scanned_to else int(self.addresses.get("_fromBlock", 0))
         event = self.router.events.CreatorCreated()
+        window = self.LOG_WINDOW
+
         while start <= head:
-            end = min(start + self.LOG_WINDOW - 1, head)
-            for log in event.get_logs(from_block=start, to_block=end):
-                found.append(log["args"]["account"])
+            end = min(start + window - 1, head)
+            try:
+                for log in event.get_logs(from_block=start, to_block=end):
+                    self._accounts[log["args"]["account"]] = True
+            except Exception:
+                if window <= 10:
+                    raise
+                window //= 2
+                continue
+            self._scanned_to = end
             start = end + 1
-        return found
+
+        return list(self._accounts)
 
     def usdg_balance(self, holder: str) -> int:
         usdg = self._c("MockERC20", self.addresses["USDG"])
@@ -94,6 +109,9 @@ class Chain:
     def onchain_signal(self, symbol_id: bytes) -> dict:
         s = self.signal.functions.signals(symbol_id).call()
         return {"session": s[0], "halt": s[1], "ca_at": s[2], "price_at": s[3], "observed_at": s[4]}
+
+    def venue_price(self, token: str) -> int:
+        return self.amm.functions.priceE8(Web3.to_checksum_address(token)).call()
 
     def token_of(self, symbol_id: bytes) -> str:
         return self.router.functions.tokenOf(symbol_id).call()

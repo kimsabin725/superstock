@@ -75,7 +75,12 @@ def symbol_id(sym: str) -> bytes:
 
 
 class State:
-    """What we last published, so we only pay gas for things that changed."""
+    """A local mirror of what we last published.
+
+    It is a cache and nothing more: the chain is the record. Anything decided
+    from this alone drifts the moment the contracts are redeployed under it —
+    which is how a mark of $560 survived a redeploy and a creator bought at it
+    while the tape said $759.""" 
 
     def __init__(self, path: pathlib.Path) -> None:
         self.db = sqlite3.connect(path, check_same_thread=False)
@@ -212,11 +217,8 @@ class Keeper:
             ca_at = self.ca.get(sym, 0)
             seen = self.price_seen_at.get(sym, 0.0)
             price_at = int(seen) if wall - seen <= PRICE_BUDGET else 0
-            prev = self.state.last(sym)
-            if prev == (session, halt, ca_at):
-                # nothing moved, but observedAt still has to be refreshed
-                pass
-            else:
+            onchain = self.chain.onchain_signal(symbol_id(sym))
+            if (onchain["session"], onchain["halt"], onchain["ca_at"]) != (session, halt, ca_at):
                 changed.append(sym)
             ids.append(symbol_id(sym))
             sigs.append((session, halt, ca_at, price_at, t))
@@ -238,10 +240,13 @@ class Keeper:
             e8 = int(round(q * 1e8))
             seen[sym] = q
             self.price_seen_at[sym] = time.time()
-            prev = self.state.last_price(sym)
+            token = Web3.to_checksum_address(self.chain.token_of(symbol_id(sym)))
+            # Ask the venue what it currently believes, rather than what we
+            # remember telling it. Cheap, and it cannot go stale.
+            prev = self.chain.venue_price(token)
             if prev and abs(e8 - prev) * 10_000 <= PRICE_DEADBAND_BPS * prev:
                 continue
-            stocks.append(Web3.to_checksum_address(self.chain.token_of(symbol_id(sym))))
+            stocks.append(token)
             prices.append(e8)
             self.state.save_price(sym, e8)
         if stocks:
@@ -251,9 +256,19 @@ class Keeper:
         else:
             log("prices", pushed=0, quotes=seen)
 
+    def _anything_buyable(self) -> bool:
+        return any(
+            self.chain.signal.functions.check(symbol_id(s)).call()[0] for s in self.sessions
+        )
+
     def loop_sweep(self) -> None:
-        """Cash that cannot be spent yet should not sit idle. Only accounts whose
-        creator asked for this are touched; the contract enforces that too."""
+        """Cash that cannot be spent yet should not sit idle.
+
+        Only while it cannot be spent, though: parking cash the next pass is
+        about to un-park costs two transactions and earns a rounding error."""
+        if self._anything_buyable():
+            log("sweep", skipped="the market is open; the cash is about to be spent")
+            return
         for address in self.accounts:
             acct = self.chain.creator_account(address)
             try:
@@ -273,10 +288,7 @@ class Keeper:
     def loop_buys(self) -> None:
         """Batch the waiting cash into buys. Anyone can call this; the keeper
         just does it on a schedule so creators do not have to."""
-        buyable = any(
-            self.chain.signal.functions.check(symbol_id(s)).call()[0] for s in self.sessions
-        )
-        if not buyable:
+        if not self._anything_buyable():
             log("buys", skipped="nothing the tape allows right now")
             return
         for address in self.accounts:
