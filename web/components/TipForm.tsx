@@ -112,8 +112,8 @@ export function TipForm({ handle }: { handle: string }) {
   }
 
   return (
-    <div className="grid gap-6 md:grid-cols-[1fr_320px]">
-      <div className="grid gap-5">
+    <div className="grid grid-cols-1 gap-6 md:grid-cols-[minmax(0,1fr)_320px]">
+      <div className="grid min-w-0 grid-cols-1 gap-5">
         <div>
           <p className="text-[12.5px] uppercase tracking-wider text-inkdim">Support</p>
           <h1 className="mono mt-1 text-[26px] font-semibold">{handle}</h1>
@@ -124,11 +124,13 @@ export function TipForm({ handle }: { handle: string }) {
         </div>
 
         <div className="card p-5">
-          <label className="text-[12.5px] text-inkdim">Amount</label>
-          <div className="mt-2 flex items-center gap-2">
+          <label htmlFor="tip-amount" className="text-[12.5px] text-inkdim">Amount</label>
+          <div className="mt-2 flex flex-wrap items-center gap-2">
             <div className="flex items-center rounded-lg border border-line bg-panel2 px-3">
               <span className="text-inkdim">$</span>
               <input
+                id="tip-amount"
+                aria-label="Tip amount in US dollars"
                 className="w-28 border-0 bg-transparent px-2 py-2.5 text-[18px] font-semibold"
                 value={amount}
                 onChange={(e) => { setSent(null); setAmount(e.target.value.replace(/[^0-9.]/g, "")); }}
@@ -142,8 +144,9 @@ export function TipForm({ handle }: { handle: string }) {
             ))}
           </div>
 
-          <label className="mt-5 block text-[12.5px] text-inkdim">Message</label>
+          <label htmlFor="tip-message" className="mt-5 block text-[12.5px] text-inkdim">Message</label>
           <input
+            id="tip-message"
             className="mt-2 w-full px-3 py-2.5 text-[14px]"
             placeholder="say something"
             maxLength={120}
@@ -180,7 +183,7 @@ export function TipForm({ handle }: { handle: string }) {
             </p>
           )}
 
-          <div className="mt-5 flex items-center gap-3">
+          <div className="mt-5 flex flex-wrap items-center gap-3">
             {!isConnected ? (
               <span className="text-[13px] text-inkdim">Connect a wallet to tip.</span>
             ) : wrongChain ? (

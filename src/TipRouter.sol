@@ -53,6 +53,7 @@ contract TipRouter {
         uint256 tipId
     );
     event KeeperSet(address indexed keeper);
+    event CreatorReassigned(bytes32 indexed creatorId, address indexed from, address indexed to);
 
     error NotOwner();
     error FeeTooHigh();
@@ -60,6 +61,8 @@ contract TipRouter {
     error CreatorUnknown();
     error CreatorExists();
     error ZeroAmount();
+    error OwnerMustBeSender();
+    error CreatorHasHistory();
 
     modifier onlyOwner() {
         if (msg.sender != owner) revert NotOwner();
@@ -102,12 +105,27 @@ contract TipRouter {
 
     // -------------------------------------------------------------- creators
 
+    /// @notice Anyone may onboard, but only for themselves: you cannot create an
+    /// account for a handle and hand it to someone else. Handles are still
+    /// first-come-first-served, which is a real limit — see `reassignCreator`.
     function createCreator(bytes32 creatorId, CreatorConfig calldata cfg) external returns (address account) {
+        if (cfg.owner != msg.sender) revert OwnerMustBeSender();
         if (accounts[creatorId] != address(0)) revert CreatorExists();
         account = Clones.clone(implementation);
         accounts[creatorId] = account;
         ICreatorAccount(account).initialize(address(this), cfg);
         emit CreatorCreated(creatorId, account, cfg.owner);
+    }
+
+    /// @notice Undo a squatted handle — and only a squatted one. Once a single
+    /// tip has landed the binding is frozen, so this can never redirect money
+    /// anyone has actually sent.
+    function reassignCreator(bytes32 creatorId, address newAccount) external onlyOwner {
+        address current = accounts[creatorId];
+        if (current == address(0)) revert CreatorUnknown();
+        if (ICreatorAccount(current).tipCount() != 0) revert CreatorHasHistory();
+        accounts[creatorId] = newAccount;
+        emit CreatorReassigned(creatorId, current, newAccount);
     }
 
     // ------------------------------------------------------------------ tips

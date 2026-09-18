@@ -151,6 +151,40 @@ def main() -> int:
     ok &= check("a halt with no resumption time stays a halt", not src.resumed(open_halt, now))
     ok &= check("a halt past its resumption time clears", src.resumed(past_halt, now))
 
+    # 8. a halt must survive the feed being wiped at midnight ET
+    k = fresh_keeper()
+    k.underlying = {"NVDA": "NVDAx"}
+    src_feed = {"NVDA": {"code": 200, "reason_code": "T1", "halt_date": "", "halt_time": "",
+                         "resumption_date": "", "resumption_trade_time": ""}}
+    real_fetch, real_resumed = src.fetch_exchange_halts, src.resumed
+    src.fetch_exchange_halts = lambda: src_feed
+    k.loop_halts()
+    ok &= check("a halt in the feed is recorded", k.exchange_halts.get("NVDAx") == 200)
+    src.fetch_exchange_halts = lambda: {}          # midnight: the feed is emptied
+    k.loop_halts()
+    ok &= check("and it survives the feed being wiped", k.exchange_halts.get("NVDAx") == 200)
+    src.resumed = lambda h, n: True                # the exchange publishes a resumption
+    k.loop_halts()
+    ok &= check("only a resumption time clears it", "NVDAx" not in k.exchange_halts)
+    src.fetch_exchange_halts, src.resumed = real_fetch, real_resumed
+
+    # 9. the two feeds spell class shares differently; the join has to survive it
+    ok &= check("BRK.B and BRK/B join", src.normalize_ticker("brk.b") == src.normalize_ticker("BRK/B"))
+
+    # 10. a halted name holds even while its session says the market is open
+    k = fresh_keeper()
+    k.exchange_halts = {"NVDAx": 201}
+    k.publish(force=True)
+    sigs = dict(zip(K.POOL, k.chain.sent[-1][1][1]))
+    ok &= check("a halt outranks an open session", sigs["NVDAx"][1] == 201 and sigs["SPYx"][1] == 0)
+
+    # 11. an issuer halt is reported when the exchange has nothing to say
+    k = fresh_keeper()
+    k.issuer_halts["TSLAx"] = 210
+    k.publish(force=True)
+    sigs = dict(zip(K.POOL, k.chain.sent[-1][1][1]))
+    ok &= check("an issuer halt is reported too", sigs["TSLAx"][1] == 210)
+
     print("\n" + ("all keeper checks passed" if ok else "KEEPER CHECKS FAILED"))
     return 0 if ok else 1
 

@@ -94,7 +94,7 @@ contract TipRouterTest is Base {
     function test_CreatorAccountsAreDistinctClones() public {
         CreatorConfig memory cfg = _defaultConfig();
         cfg.owner = fan;
-        address other = router.createCreator(keccak256("@other"), cfg);
+        address other = address(_newCreator(keccak256("@other"), cfg));
         assertTrue(other != address(account));
         assertEq(CreatorAccount(other).owner(), fan);
         assertEq(account.owner(), creator);
@@ -130,5 +130,49 @@ contract TipRouterTest is Base {
         vm.expectEmit(true, true, true, true, address(router));
         emit TipRouter.Tipped(PLATFORM, CREATOR_ID, fan, 20e6, 2e6, 0, keccak256("gg"), 1);
         _tip(20e6, 0);
+    }
+
+    // ----------------------------------------------------- handle ownership
+
+    function test_CannotOnboardOnSomeoneElsesBehalf() public {
+        CreatorConfig memory cfg = _defaultConfig();
+        cfg.owner = creator;
+        vm.prank(fan);
+        vm.expectRevert(TipRouter.OwnerMustBeSender.selector);
+        router.createCreator(keccak256("@victim"), cfg);
+    }
+
+    function test_SquattedHandleCanBeReassignedBeforeAnyTip() public {
+        CreatorConfig memory squatter = _defaultConfig();
+        squatter.owner = fan;
+        address bad = address(_newCreator(keccak256("@contested"), squatter));
+
+        CreatorConfig memory real = _defaultConfig();
+        address good = address(_newCreator(keccak256("@contested-real"), real));
+
+        router.reassignCreator(keccak256("@contested"), good);
+        assertEq(router.accounts(keccak256("@contested")), good);
+        assertTrue(bad != good);
+    }
+
+    function test_ReassignIsFrozenOnceMoneyHasMoved() public {
+        CreatorConfig memory squatter = _defaultConfig();
+        squatter.owner = fan;
+        _newCreator(keccak256("@contested"), squatter);
+
+        vm.prank(fan);
+        router.tip(PLATFORM, keccak256("@contested"), 1e6, bytes32(0), 0);
+
+        vm.expectRevert(TipRouter.CreatorHasHistory.selector);
+        router.reassignCreator(keccak256("@contested"), address(0xdead));
+    }
+
+    function test_OnlyRouterOwnerReassigns() public {
+        CreatorConfig memory cfg = _defaultConfig();
+        cfg.owner = fan;
+        _newCreator(keccak256("@x"), cfg);
+        vm.prank(fan);
+        vm.expectRevert(TipRouter.NotOwner.selector);
+        router.reassignCreator(keccak256("@x"), address(1));
     }
 }

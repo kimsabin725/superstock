@@ -198,13 +198,14 @@ contract CreatorAccountTest is Base {
     function test_IdleCashEarnsTreasuryYieldAndComesBackForTheBuy() public {
         CreatorConfig memory cfg = _defaultConfig();
         cfg.sweepToTreasury = true;
-        CreatorAccount acct = CreatorAccount(router.createCreator(keccak256("@saver"), cfg));
+        CreatorAccount acct = _newCreator(keccak256("@saver"), cfg);
 
         _setClosed(NVDAX);
         _setClosed(SPYX);
         vm.prank(fan);
         router.tip(PLATFORM, keccak256("@saver"), 1_000e6, bytes32(0), 0);
 
+        vm.prank(keeper);
         acct.sweepIdle();
         assertEq(usdg.balanceOf(address(acct)), 0, "cash is parked");
         assertGt(treasury.balanceOf(address(acct)), 0, "vault shares held");
@@ -221,8 +222,18 @@ contract CreatorAccountTest is Base {
     }
 
     function test_SweepRevertsWhenDisabled() public {
+        vm.prank(keeper);
         vm.expectRevert(CreatorAccount.SweepDisabled.selector);
         account.sweepIdle();
+    }
+
+    function test_OnlyKeeperOrOwnerParksCash() public {
+        CreatorConfig memory cfg = _defaultConfig();
+        cfg.sweepToTreasury = true;
+        CreatorAccount acct = _newCreator(keccak256("@parkauth"), cfg);
+        vm.prank(fan);
+        vm.expectRevert(CreatorAccount.NotKeeper.selector);
+        acct.sweepIdle();
     }
 
     // ------------------------------------------------------- cash-only mode
@@ -230,7 +241,7 @@ contract CreatorAccountTest is Base {
     function test_CashOnlyCreatorNeverBuys() public {
         CreatorConfig memory cfg = _defaultConfig();
         cfg.receiveUsdgOnly = true;
-        CreatorAccount acct = CreatorAccount(router.createCreator(keccak256("@cash"), cfg));
+        CreatorAccount acct = _newCreator(keccak256("@cash"), cfg);
 
         vm.prank(fan);
         router.tip(PLATFORM, keccak256("@cash"), 20e6, bytes32(0), 0);
@@ -312,7 +323,7 @@ contract CreatorAccountTest is Base {
         CreatorConfig memory cfg = _defaultConfig();
         cfg.symbols = syms;
         cfg.weightsBps = w;
-        CreatorAccount acct = CreatorAccount(router.createCreator(keccak256("@typo"), cfg));
+        CreatorAccount acct = _newCreator(keccak256("@typo"), cfg);
 
         // a signal exists for the ghost symbol, but no token was ever registered
         _setOpen(ghost);
@@ -327,11 +338,12 @@ contract CreatorAccountTest is Base {
     function test_TreasurySharesAreNotLockedStock() public {
         CreatorConfig memory cfg = _defaultConfig();
         cfg.sweepToTreasury = true;
-        CreatorAccount acct = CreatorAccount(router.createCreator(keccak256("@parked"), cfg));
+        CreatorAccount acct = _newCreator(keccak256("@parked"), cfg);
         _setClosed(NVDAX);
         _setClosed(SPYX);
         vm.prank(fan);
         router.tip(PLATFORM, keccak256("@parked"), 100e6, bytes32(0), 0);
+        vm.prank(keeper);
         acct.sweepIdle();
 
         vm.prank(creator);
@@ -342,5 +354,50 @@ contract CreatorAccountTest is Base {
         vm.prank(creator);
         acct.withdraw(address(usdg), 90e6);
         assertEq(usdg.balanceOf(creator), 90e6);
+    }
+
+    // -------------------------------------------------------- hard limits
+
+    function test_PortfolioIsCapped() public {
+        bytes32[] memory syms = new bytes32[](11);
+        uint16[] memory w = new uint16[](11);
+        for (uint256 i; i < 11; ++i) {
+            syms[i] = keccak256(abi.encode("S", i));
+            w[i] = i == 0 ? 1000 : 900;
+        }
+        CreatorConfig memory cfg = _defaultConfig();
+        cfg.symbols = syms;
+        cfg.weightsBps = w;
+        vm.prank(creator);
+        vm.expectRevert(CreatorAccount.BadWeights.selector);
+        account.setConfig(cfg);
+    }
+
+    function test_ReentrantVenueCannotDoubleSpend() public {
+        ReentrantVenue evil = new ReentrantVenue();
+        // point a fresh account at a venue that calls back into executeBuys
+        vm.etch(address(amm), address(evil).code);
+        _tip(20e6, 0);
+        ReentrantVenue(address(amm)).arm(address(account));
+        vm.expectRevert();
+        account.executeBuys();
+    }
+}
+
+/// @dev Stands in for a mainnet router that calls back into the account.
+contract ReentrantVenue {
+    address target;
+
+    function arm(address t) external {
+        target = t;
+    }
+
+    function quote(address, uint256) external pure returns (uint256) {
+        return 1;
+    }
+
+    function swapExactUsdgForStock(address, uint256, uint256, address) external returns (uint256) {
+        CreatorAccount(target).executeBuys();
+        return 1;
     }
 }

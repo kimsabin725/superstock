@@ -45,7 +45,7 @@ export function CreatorDashboard({ handle }: { handle: string }) {
           <p className="text-[12.5px] uppercase tracking-wider text-inkdim">Creator account</p>
           <h1 className="mono mt-1 text-[24px] font-semibold">{handle}</h1>
           <a
-            className="mono mt-1 inline-block text-[12px] text-accent hover:underline"
+            className="mono mt-1 inline-block max-w-full break-all text-[12px] text-accent hover:underline"
             href={explorerAddr(account)} target="_blank" rel="noreferrer"
           >
             {account}
@@ -57,8 +57,8 @@ export function CreatorDashboard({ handle }: { handle: string }) {
         </div>
       </div>
 
-      <div className="grid gap-4 md:grid-cols-[1fr_320px]">
-        <div className="grid gap-4">
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-[minmax(0,1fr)_320px]">
+        <div className="grid min-w-0 grid-cols-1 gap-4">
           <div className="card p-5">
             <h3 className="mb-4 text-[13px] font-semibold">Holdings</h3>
             <div className="grid gap-2">
@@ -66,7 +66,7 @@ export function CreatorDashboard({ handle }: { handle: string }) {
                 const t = tickers[i];
                 const s = tape[t];
                 return (
-                  <div key={p.symbolId} className="flex items-baseline gap-3 rounded-lg bg-panel2 px-3.5 py-3">
+                  <div key={p.symbolId} className="flex flex-wrap items-baseline gap-x-3 gap-y-1 rounded-lg bg-panel2 px-3.5 py-3">
                     <span className="mono w-16 text-[14px] font-semibold">{t}</span>
                     <span className="mono text-[14px]">{shares(p.balance)}</span>
                     <span className="text-[12px] text-inkdim">shares</span>

@@ -31,7 +31,10 @@ from chain import Chain
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 POOL = ["NVDAx", "TSLAx", "SPYx", "AAPLx", "COINx"]
 
-INTERVALS = {"assets": 60, "halts": 300, "corporate_actions": 300, "prices": 60, "buys": 300}
+INTERVALS = {
+    "assets": 60, "halts": 300, "corporate_actions": 300,
+    "prices": 60, "sweep": 600, "buys": 300, "accounts": 300,
+}
 US_MARKET_HALT_POLL = 30  # the halt feed matters most while New York is open
 
 # The contract holds everything once a signal is older than its maxSignalAge
@@ -125,6 +128,7 @@ class Keeper:
         self.us_market_open = False
         self.source_ok_at: dict[str, float] = {}
         self.price_seen_at: dict[str, float] = {}
+        self.open_halts: dict[str, dict] = {}  # xStock symbol -> the halt record
 
     # ------------------------------------------------------------- reading
 
@@ -135,7 +139,7 @@ class Keeper:
         self.us_market_open = False
         for a in assets:
             sym = a.get("symbol")
-            under = (a.get("underlyingSymbol") or "").upper()
+            under = src.normalize_ticker(a.get("underlyingSymbol") or "")
             if under:
                 self.underlying[under] = sym
             if sym in pool:
@@ -147,19 +151,32 @@ class Keeper:
         log("assets", n=len(assets), pool={s: self.sessions.get(s) for s in POOL})
 
     def loop_halts(self) -> None:
+        """The feed carries the current trading day only and is wiped at midnight
+        ET. A halt leaving the feed therefore means nothing at all — a name halted
+        into the close would look resumed at 00:00. So halts are remembered, and
+        only the published resumption time clears one."""
         halts = src.fetch_exchange_halts()
         t = now()
-        fresh: dict[str, int] = {}
+        pool = set(POOL)
+
         for ticker, h in halts.items():
             xsym = self.underlying.get(ticker)
-            if xsym not in set(POOL):
-                continue
-            if src.resumed(h, t):
-                continue
-            fresh[xsym] = h["code"]
-        self.exchange_halts = fresh
+            if xsym in pool:
+                self.open_halts[xsym] = h
+
+        cleared = [s for s, h in self.open_halts.items() if src.resumed(h, t)]
+        for s in cleared:
+            del self.open_halts[s]
+
+        self.exchange_halts = {s: h["code"] for s, h in self.open_halts.items()}
         self.source_ok_at["halts"] = time.time()
-        log("halts", feed_items=len(halts), affecting_pool=fresh)
+        log(
+            "halts",
+            feed_items=len(halts),
+            affecting_pool=self.exchange_halts,
+            cleared=cleared,
+            remembered=len(self.open_halts),
+        )
 
     def loop_corporate_actions(self) -> None:
         events = src.fetch_corporate_actions()
@@ -234,6 +251,25 @@ class Keeper:
         else:
             log("prices", pushed=0, quotes=seen)
 
+    def loop_sweep(self) -> None:
+        """Cash that cannot be spent yet should not sit idle. Only accounts whose
+        creator asked for this are touched; the contract enforces that too."""
+        for address in self.accounts:
+            acct = self.chain.creator_account(address)
+            try:
+                if not acct.functions.sweepToTreasury().call():
+                    continue
+                if acct.functions.pendingUsdg().call() == 0:
+                    continue
+                if self.chain.usdg_balance(address) == 0:
+                    continue
+            except Exception as e:
+                log("sweep_read_error", account=address, error=repr(e))
+                continue
+            tx = self.chain.send(acct.functions.sweepIdle())
+            health["last_tx"] = tx
+            log("swept", account=address, tx=tx)
+
     def loop_buys(self) -> None:
         """Batch the waiting cash into buys. Anyone can call this; the keeper
         just does it on a schedule so creators do not have to."""
@@ -253,13 +289,15 @@ class Keeper:
             log("buys", account=address, pending=pending, tx=tx)
 
     def discover_accounts(self) -> None:
-        found = []
-        for handle in ("@indiemusician",):
-            a = self.chain.router.functions.accounts(Web3.keccak(text=handle)).call()
-            if int(a, 16) != 0:
-                found.append(a)
-        self.accounts = found
-        log("accounts", accounts=found)
+        """Every account the router has ever created, read from its own events —
+        a creator who onboards through the web app is picked up without anyone
+        editing this file."""
+        try:
+            self.accounts = self.chain.creator_accounts()
+        except Exception as e:
+            log("discover_error", error=repr(e))
+            return
+        log("accounts", n=len(self.accounts), accounts=self.accounts)
 
 
 # --------------------------------------------------------------------- health
@@ -301,17 +339,18 @@ def main() -> None:
 
     log("start", keeper=chain.acct.address, balance_okb=round(chain.balance_okb(), 6), pool=POOL)
 
-    order = ["assets", "halts", "corporate_actions", "prices", "buys"]
+    order = ["accounts", "assets", "halts", "corporate_actions", "prices", "sweep", "buys"]
     runners = {
+        "accounts": k.discover_accounts,
         "assets": k.loop_assets,
         "halts": k.loop_halts,
         "corporate_actions": k.loop_corporate_actions,
         "prices": k.loop_prices,
+        "sweep": k.loop_sweep,
         "buys": k.loop_buys,
     }
     due = {name: 0.0 for name in order}
 
-    k.discover_accounts()
     last_publish = 0.0
 
     while True:

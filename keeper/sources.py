@@ -39,6 +39,12 @@ CA_TYPE = {
 HK_TZ = ZoneInfo("Asia/Hong_Kong")
 
 
+def normalize_ticker(t: str) -> str:
+    """The halt feed and the issuer disagree on class shares: one writes BRK.B,
+    the other BRK/B. Join on one spelling or the join silently finds nothing."""
+    return t.strip().upper().replace(".", "/")
+
+
 def _get(url: str, **params):
     r = requests.get(url, params=params or None, timeout=20)
     r.raise_for_status()
@@ -104,7 +110,7 @@ def fetch_exchange_halts() -> dict[str, dict]:
             el = item.find(NDAQ + tag)
             return (el.text or "").strip() if el is not None else ""
 
-        symbol = f("IssueSymbol").upper().replace(".", "/")
+        symbol = normalize_ticker(f("IssueSymbol"))
         if not symbol:
             continue
         code = f("ReasonCode").upper()

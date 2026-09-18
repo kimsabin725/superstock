@@ -65,3 +65,6 @@ input, select {
   outline: none;
 }
 input:focus, select:focus { border-color: var(--accent); }
+
+/* A broadcast overlay is composited over video: it has to be see-through. */
+body:has(.overlay-root) { background: transparent; }

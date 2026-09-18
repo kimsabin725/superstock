@@ -40,6 +40,11 @@ contract CreatorAccount {
     uint256 public tipCount;
     uint256 public totalTipped;
 
+    /// @dev The venue is an outside contract. On testnet it is ours; on mainnet
+    /// it is a real router that could call back in. Nothing here needs to be
+    /// re-entered, so nothing here may be.
+    uint256 private _entered;
+
     event Deposited(address indexed fan, uint256 amount, uint8 symbolChoice, uint256 tipCount);
     event Bought(bytes32 indexed symbolId, uint256 usdgIn, uint256 tokensOut, uint256 priceRefE8);
     event Held(bytes32 indexed symbolId, uint256 amount, uint16 reason);
@@ -61,6 +66,7 @@ contract CreatorAccount {
     error InsufficientBalance();
     error SweepDisabled();
     error WithdrawTreasuryAsCash();
+    error Reentrancy();
 
     modifier onlyRouter() {
         if (msg.sender != router) revert NotRouter();
@@ -70,6 +76,13 @@ contract CreatorAccount {
     modifier onlyOwner() {
         if (msg.sender != owner) revert NotOwner();
         _;
+    }
+
+    modifier nonReentrant() {
+        if (_entered == 1) revert Reentrancy();
+        _entered = 1;
+        _;
+        _entered = 0;
     }
 
     function initialize(address router_, CreatorConfig calldata cfg) external {
@@ -124,8 +137,13 @@ contract CreatorAccount {
         }
     }
 
+    /// @dev Every loop in this contract walks the portfolio. An unbounded one
+    /// would let a creator price their own account out of ever buying again.
+    uint256 internal constant MAX_SYMBOLS = 10;
+
     function _setPortfolio(bytes32[] calldata symbols_, uint16[] calldata weights_) internal {
-        if (symbols_.length == 0 || symbols_.length != weights_.length) revert BadWeights();
+        if (symbols_.length == 0 || symbols_.length > MAX_SYMBOLS) revert BadWeights();
+        if (symbols_.length != weights_.length) revert BadWeights();
         uint256 sum;
         for (uint256 i; i < weights_.length; ++i) {
             sum += weights_[i];
@@ -158,7 +176,7 @@ contract CreatorAccount {
 
     /// @notice Anyone may call. Buys only what the tape currently allows;
     /// everything else stays as cash and is tried again later.
-    function executeBuys() external {
+    function executeBuys() external nonReentrant {
         if (receiveUsdgOnly) return;
         _unsweep();
 
@@ -198,8 +216,11 @@ contract CreatorAccount {
     // -------------------------------------------------------------- treasury
 
     /// @notice Park idle cash in tokenized treasuries while it waits for the open.
-    function sweepIdle() external {
+    function sweepIdle() external nonReentrant {
         if (!sweepToTreasury) revert SweepDisabled();
+        // Parking cash is the keeper's chore on the creator's behalf; leaving it
+        // open to anyone lets a stranger churn the vault's rounding for free.
+        if (msg.sender != owner && msg.sender != ITipRouter(router).keeper()) revert NotKeeper();
         uint256 idle = usdg.balanceOf(address(this));
         if (idle == 0) return;
         usdg.forceApprove(address(treasury), idle);
@@ -223,7 +244,7 @@ contract CreatorAccount {
 
     // ------------------------------------------------------------ withdrawal
 
-    function withdraw(address token, uint256 amount) external onlyOwner {
+    function withdraw(address token, uint256 amount) external onlyOwner nonReentrant {
         if (token == address(usdg)) {
             _unsweep();
             if (usdg.balanceOf(address(this)) < amount) revert InsufficientBalance();

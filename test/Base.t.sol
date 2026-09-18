@@ -109,7 +109,13 @@ abstract contract Base is Test {
     }
 
     function _newCreator(CreatorConfig memory cfg) internal returns (CreatorAccount) {
-        return CreatorAccount(router.createCreator(CREATOR_ID, cfg));
+        return _newCreator(CREATOR_ID, cfg);
+    }
+
+    /// @dev Onboarding is done by the creator themselves, which the router enforces.
+    function _newCreator(bytes32 creatorId, CreatorConfig memory cfg) internal returns (CreatorAccount) {
+        vm.prank(cfg.owner);
+        return CreatorAccount(router.createCreator(creatorId, cfg));
     }
 
     function _tip(uint256 amount, uint8 choice) internal {

@@ -62,14 +62,36 @@ We would rather you read these here than find them yourself.
    the other 764 fall back to the issuer's own mark, which is a single source.
 6. **Dividends are recorded, not reconciled.** The keeper writes what it observed
    so the statement can show it; it does not prove the rebase against balances.
+7. **Handles are first-come-first-served.** Nothing here proves you are the
+   creator you claim to be, so a handle can be squatted before its owner arrives.
+   The router's owner can re-point a handle, but only while it has never received
+   a tip — once money has moved the binding is frozen. A real deployment would
+   bind handles to whatever identity the platform already has.
 
-## Build
+## Run it yourself
 
 ```
-forge test           # 39 tests
+cp .env.example .env            # two testnet keys; the faucet funds them
+forge test                      # contracts
+python keeper/test_keeper.py    # what the keeper does when its feeds fail (offline)
+
 forge script script/Deploy.s.sol   --rpc-url $XLAYER_TESTNET_RPC --broadcast
+node script/sync-addresses.mjs     # hand the new addresses to the web app
 forge script script/FirstTip.s.sol --rpc-url $XLAYER_TESTNET_RPC --broadcast
+
+python keeper/keeper.py         # reads the tape, writes it, batches the buys
+cd web && pnpm install && pnpm dev
 ```
+
+| page | what it is |
+|---|---|
+| `/c/<handle>` | what a fan sees |
+| `/dashboard/<handle>` | the creator's account |
+| `/platform` | what a platform integrates against |
+| `/overlay/<handle>` | a transparent broadcast overlay, for OBS as a browser source |
+
+The keeper serves `http://127.0.0.1:8787` — last success per loop, last
+transaction, and any source it has stopped trusting.
 
 ## License
 

@@ -19,7 +19,7 @@ export function FanCard({
       </div>
       <div className="flex items-center gap-3 border-t border-line px-6 py-3 text-[12px]">
         <span className="text-inkdim">on chain</span>
-        <a className="mono text-accent hover:underline" href={explorerTx(hash)} target="_blank" rel="noreferrer">
+        <a className="mono break-all text-accent hover:underline" href={explorerTx(hash)} target="_blank" rel="noreferrer">
           {hash.slice(0, 12)}…{hash.slice(-8)}
         </a>
       </div>

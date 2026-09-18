@@ -8,11 +8,11 @@ export function Chrome({ children }: { children: React.ReactNode }) {
   return (
     <div className="min-h-screen">
       <header className="border-b border-line">
-        <div className="mx-auto flex max-w-5xl items-center gap-6 px-5 py-4">
+        <div className="mx-auto flex max-w-5xl flex-wrap items-center gap-x-6 gap-y-3 px-5 py-4">
           <Link href="/" className="text-[15px] font-semibold tracking-tight">
             Super<span className="text-accent">Stock</span>
           </Link>
-          <nav className="flex gap-5 text-[13px] text-inkdim">
+          <nav className="flex flex-wrap gap-x-5 gap-y-2 text-[13px] text-inkdim">
             <Link className="hover:text-ink" href="/c/@indiemusician">Tip page</Link>
             <Link className="hover:text-ink" href="/dashboard/@indiemusician">Creator</Link>
             <Link className="hover:text-ink" href="/platform">Platform</Link>

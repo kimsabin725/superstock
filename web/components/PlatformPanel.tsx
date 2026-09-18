@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useState } from "react";
 import { useReadContract } from "wagmi";
 import { ABI, ADDR, explorerAddr } from "@/lib/chain";
@@ -23,8 +24,8 @@ export function PlatformPanel() {
   const p = data as readonly [`0x${string}`, number, boolean] | undefined;
 
   return (
-    <div className="grid gap-6 md:grid-cols-[1fr_320px]">
-      <div className="grid gap-5">
+    <div className="grid grid-cols-1 gap-6 md:grid-cols-[minmax(0,1fr)_320px]">
+      <div className="grid min-w-0 grid-cols-1 gap-5">
         <div>
           <p className="text-[12.5px] uppercase tracking-wider text-inkdim">For platforms</p>
           <h1 className="mt-1 text-[24px] font-semibold">One transaction to turn tips into stock</h1>
@@ -64,7 +65,7 @@ export function PlatformPanel() {
 
         <div className="card p-5">
           <h3 className="mb-3 text-[13px] font-semibold">The integration</h3>
-          <pre className="mono overflow-x-auto rounded-lg bg-panel2 p-4 text-[12px] leading-relaxed text-inkdim">
+          <pre className="mono max-w-full overflow-x-auto rounded-lg bg-panel2 p-4 text-[12px] leading-relaxed text-inkdim">
 {`// once, from your treasury wallet
 router.registerPlatform(id("yourapp"), payoutAddress, 1000)  // 10%
 
@@ -74,6 +75,13 @@ router.tip(id("yourapp"), id(creatorHandle), amount, messageHash, choice)`}
           <p className="mt-3 text-[12.5px] leading-relaxed text-inkdim">
             The fee cap is 50% and it is enforced by the contract, not by us. Deactivating a platform
             stops new tips immediately and touches nobody&apos;s balance.
+          </p>
+          <p className="mt-3 text-[12.5px] leading-relaxed text-inkdim">
+            The broadcast overlay is a page, so it drops into OBS as a browser source:{" "}
+            <Link className="mono text-accent hover:underline" href="/overlay/@indiemusician">
+              /overlay/&lt;handle&gt;
+            </Link>{" "}
+            — transparent background, reads the tips off the chain itself.
           </p>
         </div>
       </div>
@@ -94,9 +102,9 @@ router.tip(id("yourapp"), id(creatorHandle), amount, messageHash, choice)`}
 
 function Row({ k, v }: { k: string; v: React.ReactNode }) {
   return (
-    <div className="flex items-baseline justify-between gap-4 border-b border-line pb-2 last:border-0">
+    <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1 border-b border-line pb-2 last:border-0">
       <dt className="text-inkdim">{k}</dt>
-      <dd>{v}</dd>
+      <dd className="break-all">{v}</dd>
     </div>
   );
 }

@@ -32,6 +32,27 @@ class Chain:
     def _c(self, name: str, address: str):
         return self.w3.eth.contract(address=Web3.to_checksum_address(address), abi=_abi(name))
 
+    # Public RPCs reject an unbounded log query, so the scan starts at the block
+    # the router was deployed in and walks forward in windows the node accepts.
+    LOG_WINDOW = 5_000
+
+    def creator_accounts(self) -> list[str]:
+        """Every creator the router has announced, read from its own events."""
+        start = int(self.addresses.get("_fromBlock", 0))
+        head = self.w3.eth.block_number
+        found: list[str] = []
+        event = self.router.events.CreatorCreated()
+        while start <= head:
+            end = min(start + self.LOG_WINDOW - 1, head)
+            for log in event.get_logs(from_block=start, to_block=end):
+                found.append(log["args"]["account"])
+            start = end + 1
+        return found
+
+    def usdg_balance(self, holder: str) -> int:
+        usdg = self._c("MockERC20", self.addresses["USDG"])
+        return usdg.functions.balanceOf(Web3.to_checksum_address(holder)).call()
+
     def creator_account(self, address: str):
         return self.w3.eth.contract(address=Web3.to_checksum_address(address), abi=self.account_abi)
 

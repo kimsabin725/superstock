@@ -6,8 +6,8 @@ import { ADDR, explorerAddr } from "@/lib/chain";
 export default function Home() {
   return (
     <Chrome>
-      <div className="grid gap-8 md:grid-cols-[1fr_320px]">
-        <div className="grid gap-6">
+      <div className="grid grid-cols-1 gap-8 md:grid-cols-[minmax(0,1fr)_320px]">
+        <div className="grid min-w-0 grid-cols-1 gap-6">
           <div>
             <h1 className="text-[34px] font-semibold leading-[1.15] tracking-tight">
               Tips that arrive as stock.
@@ -58,7 +58,7 @@ export default function Home() {
           <TapeStrip />
           <div className="card p-4 text-[12px] leading-relaxed text-inkdim">
             <p className="mb-2 text-[13px] font-semibold text-ink">Deployed</p>
-            <p className="mono">
+            <p className="mono break-all">
               <a className="text-accent hover:underline" href={explorerAddr(ADDR.TipRouter)} target="_blank" rel="noreferrer">
                 TipRouter
               </a>{" "}
