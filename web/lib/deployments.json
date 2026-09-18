@@ -1,16 +1,17 @@
 {
-  "TapeSignal": "0x1402a697c444c912ad17aa0717b230af30b184a1",
-  "MockAMM": "0xee84a33c17c103ea46592b194978245b2b630336",
-  "MockTreasury": "0xc58dd2c196fade46c500fd94ff6877884c734baf",
-  "TipRouter": "0x5191adb59967cb000c9938e441ccd92c329ea8b1",
-  "USDG": "0x89e4bbf69011c8a3069df681dbc714cd9df21875",
-  "NVDAx": "0x85f8db7feabb4ba581376a73d6e1bc74834be919",
-  "TSLAx": "0x240c6c2c3ecc916cfdb9ba00e789e1a57c8fc331",
-  "SPYx": "0x614c4c927db3f5f4e0f3a1b151d2dfb4837b10fc",
-  "AAPLx": "0xeb6e91a171647768d45f5b820d63603f14bf9f33",
-  "COINx": "0x6539a22ffde07186abb028bb7f03885ccee82e92",
+  "TapeSignal": "0xa94a7812a7a1c0572120b934c9a923735043cc4a",
+  "MockAMM": "0x9434360860e991990ce7c0f8b90c6897d02b5ab7",
+  "MockTreasury": "0xd5cfcf6b5159b429b46134e2b109307f8235dfee",
+  "TipRouter": "0xb3b9a0d6588e8fa0b626917670a7d0e07ba20af6",
+  "USDG": "0x9c93b97a8601b7189fdbb440fda2bd4c0033b78a",
+  "NVDAx": "0x36d20affb8ad38385f0acd6bc7ee0f124a7d116d",
+  "TSLAx": "0x6ecc91bd2b52286836ec01fffcad7bdde840e5e8",
+  "SPYx": "0x48dd3e2b4144f71983285e029a30d74f51dee2f8",
+  "AAPLx": "0x4ca685ca9d558862e171164e70f1d1e15db7ea0d",
+  "COINx": "0xc381b6d21d17100b5e25fdc0ffcac796af40782e",
   "_chainId": 1952,
   "_rpc": "https://testrpc.xlayer.tech",
   "_explorer": "https://www.oklink.com/x-layer-testnet",
-  "_deployer": "0x6dF5886a16CE3C9f83B30b106C3761212DB175f8"
+  "_deployer": "0x6dF5886a16CE3C9f83B30b106C3761212DB175f8",
+  "_keeper": "0x80eED4cf9DcC0AB4209c55780695b92E5a2117e4"
 }

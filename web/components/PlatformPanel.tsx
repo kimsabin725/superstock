@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { useReadContract } from "wagmi";
 import { ABI, ADDR, explorerAddr } from "@/lib/chain";
-import { id, usd } from "@/lib/hooks";
+import { id } from "@/lib/hooks";
 
 const DEMO = [
   { key: "orbit", label: "A live streaming app", fee: "10%" },

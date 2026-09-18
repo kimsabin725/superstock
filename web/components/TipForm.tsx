@@ -1,18 +1,27 @@
 "use client";
 
-import { useMemo, useState } from "react";
-import { useAccount, useReadContract, useWriteContract, useWaitForTransactionReceipt } from "wagmi";
+import { useState } from "react";
+import { useAccount, useChainId, useReadContract, useWriteContract, useWaitForTransactionReceipt } from "wagmi";
 import { parseUnits, maxUint256 } from "viem";
-import { ABI, ADDR, explorerTx, REASONS } from "@/lib/chain";
+import { ABI, ADDR, REASONS } from "@/lib/chain";
 import { id, usd, useCreatorAccount, useTape, TICKER_BY_ID } from "@/lib/hooks";
+import { xlayerTestnet } from "@/lib/chain";
 import { TapeStrip } from "./TapeStrip";
 import { FanCard } from "./FanCard";
 
 const PRESETS = [2, 5, 20, 50];
 
+function toUnits(amount: string): bigint {
+  try {
+    return parseUnits(amount || "0", 6);
+  } catch {
+    return 0n;
+  }
+}
+
 export function TipForm({ handle }: { handle: string }) {
   const { address, isConnected } = useAccount();
-  const account = useCreatorAccount(handle);
+  const { account, loading } = useCreatorAccount(handle);
   const tape = useTape();
 
   const [amount, setAmount] = useState("5");
@@ -45,12 +54,15 @@ export function TipForm({ handle }: { handle: string }) {
     query: { enabled: !!address, refetchInterval: 5000 },
   });
 
-  const units = useMemo(() => {
-    try { return parseUnits(amount || "0", 6); } catch { return 0n; }
-  }, [amount]);
+  const units = toUnits(amount);
 
-  const needsApproval = (allowance as bigint | undefined) !== undefined && (allowance as bigint) < units;
-  const { writeContract, isPending } = useWriteContract();
+  // Until the allowance has actually been read, we do not know which button to
+  // show — offering "Tip" on an unknown allowance just sends a tip that reverts.
+  const allowanceKnown = allowance !== undefined;
+  const needsApproval = allowanceKnown && (allowance as bigint) < units;
+  const chainId = useChainId();
+  const wrongChain = isConnected && chainId !== xlayerTestnet.id;
+  const { writeContract, isPending, error } = useWriteContract();
   const { isLoading: mining } = useWaitForTransactionReceipt({ hash: sent?.hash });
 
   const pickLabel = choice === 0 ? "their plan" : tickers[choice - 1] ?? "?";
@@ -87,6 +99,10 @@ export function TipForm({ handle }: { handle: string }) {
     );
   }
 
+  if (loading) {
+    return <div className="card p-6 text-[14px] text-inkdim">Looking up {handle}…</div>;
+  }
+
   if (!account) {
     return (
       <div className="card p-6 text-[14px] text-inkdim">
@@ -115,12 +131,12 @@ export function TipForm({ handle }: { handle: string }) {
               <input
                 className="w-28 border-0 bg-transparent px-2 py-2.5 text-[18px] font-semibold"
                 value={amount}
-                onChange={(e) => setAmount(e.target.value.replace(/[^0-9.]/g, ""))}
+                onChange={(e) => { setSent(null); setAmount(e.target.value.replace(/[^0-9.]/g, "")); }}
                 inputMode="decimal"
               />
             </div>
             {PRESETS.map((p) => (
-              <button key={p} className="btn-ghost px-3 py-2 text-[13px]" onClick={() => setAmount(String(p))}>
+              <button key={p} className="btn-ghost px-3 py-2 text-[13px]" onClick={() => { setSent(null); setAmount(String(p)); }}>
                 ${p}
               </button>
             ))}
@@ -132,7 +148,7 @@ export function TipForm({ handle }: { handle: string }) {
             placeholder="say something"
             maxLength={120}
             value={message}
-            onChange={(e) => setMessage(e.target.value)}
+            onChange={(e) => { setSent(null); setMessage(e.target.value); }}
           />
 
           <label className="mt-5 block text-[12.5px] text-inkdim">Buy them</label>
@@ -167,6 +183,10 @@ export function TipForm({ handle }: { handle: string }) {
           <div className="mt-5 flex items-center gap-3">
             {!isConnected ? (
               <span className="text-[13px] text-inkdim">Connect a wallet to tip.</span>
+            ) : wrongChain ? (
+              <span className="text-[13px] text-hold">Switch to X Layer testnet to tip.</span>
+            ) : !allowanceKnown ? (
+              <span className="text-[13px] text-inkdim">Checking your allowance…</span>
             ) : needsApproval ? (
               <button className="btn px-4 py-2.5 text-[14px]" disabled={isPending} onClick={approve}>
                 Allow USDG
@@ -192,6 +212,10 @@ export function TipForm({ handle }: { handle: string }) {
             )}
           </div>
         </div>
+
+        {error && (
+          <p className="text-[12.5px] text-hold">{error.message.split("\n")[0]}</p>
+        )}
 
         {sent && <FanCard handle={handle} amount={sent.amount} pick={sent.pick} hash={sent.hash} message={message} />}
       </div>

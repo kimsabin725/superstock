@@ -42,7 +42,15 @@ HEARTBEAT = 300
 # Don't pay gas to move a mark by a fraction of a cent.
 PRICE_DEADBAND_BPS = 10
 
-health = {"loops": {}, "last_tx": None, "errors": []}
+# How old an observation may be before we refuse to keep vouching for it.
+# Publishing a cached reading with a fresh observedAt would tell the contract the
+# tape is current when the source behind it has gone dark — which is exactly the
+# failure the contract's fail-safe exists to catch. So when a source goes stale we
+# stop writing, and the on-chain signal is allowed to age out on its own.
+SOURCE_BUDGET = {"assets": 300, "halts": 900, "corporate_actions": 1800}
+PRICE_BUDGET = 300
+
+health = {"loops": {}, "last_tx": None, "stale_sources": [], "errors": []}
 
 
 def now() -> dt.datetime:
@@ -115,6 +123,8 @@ class Keeper:
         self.underlying: dict[str, str] = {}  # underlying ticker -> xStock symbol
         self.accounts: list[str] = []
         self.us_market_open = False
+        self.source_ok_at: dict[str, float] = {}
+        self.price_seen_at: dict[str, float] = {}
 
     # ------------------------------------------------------------- reading
 
@@ -133,6 +143,7 @@ class Keeper:
                 self.issuer_halts[sym] = src.issuer_halt(a)
                 if self.sessions[sym] == src.MARKET:
                     self.us_market_open = True
+        self.source_ok_at["assets"] = time.time()
         log("assets", n=len(assets), pool={s: self.sessions.get(s) for s in POOL})
 
     def loop_halts(self) -> None:
@@ -147,12 +158,14 @@ class Keeper:
                 continue
             fresh[xsym] = h["code"]
         self.exchange_halts = fresh
+        self.source_ok_at["halts"] = time.time()
         log("halts", feed_items=len(halts), affecting_pool=fresh)
 
     def loop_corporate_actions(self) -> None:
         events = src.fetch_corporate_actions()
         upcoming = src.next_corporate_action(events, now())
         self.ca = {s: int(v["at"].timestamp()) for s, v in upcoming.items() if s in set(POOL)}
+        self.source_ok_at["corporate_actions"] = time.time()
         log("corporate_actions", total=len(events), pool=self.ca)
 
     # ------------------------------------------------------------- writing
@@ -160,6 +173,18 @@ class Keeper:
     def publish(self, force: bool = False) -> bool:
         """Push only what changed. A symbol we did not manage to read is left
         alone: its observedAt goes stale and the contract holds it by itself."""
+        wall = time.time()
+        stale = [
+            name for name, budget in SOURCE_BUDGET.items()
+            if wall - self.source_ok_at.get(name, 0.0) > budget
+        ]
+        if stale:
+            # Say nothing rather than say something we can no longer see.
+            log("publish_skipped", stale_sources=stale)
+            health["stale_sources"] = stale
+            return False
+        health["stale_sources"] = []
+
         t = int(now().timestamp())
         ids, sigs, changed = [], [], []
         for sym in POOL:
@@ -168,7 +193,8 @@ class Keeper:
             session = self.sessions[sym]
             halt = self.exchange_halts.get(sym) or self.issuer_halts.get(sym, 0)
             ca_at = self.ca.get(sym, 0)
-            price_at = t if self.state.last_price(sym) else 0
+            seen = self.price_seen_at.get(sym, 0.0)
+            price_at = int(seen) if wall - seen <= PRICE_BUDGET else 0
             prev = self.state.last(sym)
             if prev == (session, halt, ca_at):
                 # nothing moved, but observedAt still has to be refreshed
@@ -194,6 +220,7 @@ class Keeper:
                 continue
             e8 = int(round(q * 1e8))
             seen[sym] = q
+            self.price_seen_at[sym] = time.time()
             prev = self.state.last_price(sym)
             if prev and abs(e8 - prev) * 10_000 <= PRICE_DEADBAND_BPS * prev:
                 continue
@@ -210,6 +237,12 @@ class Keeper:
     def loop_buys(self) -> None:
         """Batch the waiting cash into buys. Anyone can call this; the keeper
         just does it on a schedule so creators do not have to."""
+        buyable = any(
+            self.chain.signal.functions.check(symbol_id(s)).call()[0] for s in self.sessions
+        )
+        if not buyable:
+            log("buys", skipped="nothing the tape allows right now")
+            return
         for address in self.accounts:
             acct = self.chain.creator_account(address)
             _, pending, _, _ = acct.functions.statement().call()

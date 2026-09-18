@@ -48,6 +48,7 @@ contract CreatorAccount {
     event Withdrawn(address indexed token, uint256 amount);
     event DividendObserved(bytes32 indexed symbolId, uint256 oldBal, uint256 newBal, uint256 netUsd);
     event ConfigSet(uint40 lockUntil, bool receiveUsdgOnly, bool sweepToTreasury);
+    event PinnedReleased(bytes32 indexed symbolId, uint256 amount);
 
     error AlreadyInitialized();
     error NotRouter();
@@ -59,6 +60,7 @@ contract CreatorAccount {
     error LockCannotShorten();
     error InsufficientBalance();
     error SweepDisabled();
+    error WithdrawTreasuryAsCash();
 
     modifier onlyRouter() {
         if (msg.sender != router) revert NotRouter();
@@ -87,13 +89,39 @@ contract CreatorAccount {
 
     // ---------------------------------------------------------------- config
 
+    /// @dev `owner` is deliberately not read here: the account's owner is fixed
+    /// at creation, so a config update can never hand the account to someone else.
     function setConfig(CreatorConfig calldata cfg) external onlyOwner {
         if (cfg.lockUntil < lockUntil) revert LockCannotShorten();
+        _releasePinned(cfg.symbols);
         _setPortfolio(cfg.symbols, cfg.weightsBps);
         lockUntil = cfg.lockUntil;
         receiveUsdgOnly = cfg.receiveUsdgOnly;
         sweepToTreasury = cfg.sweepToTreasury;
         emit ConfigSet(cfg.lockUntil, cfg.receiveUsdgOnly, cfg.sweepToTreasury);
+    }
+
+    /// @dev Cash a fan pinned to a symbol the creator is dropping would otherwise
+    /// be unreachable by executeBuys and invisible to the statement. It goes back
+    /// into the weighted pool instead of being stranded.
+    function _releasePinned(bytes32[] calldata next) internal {
+        for (uint256 i; i < symbols.length; ++i) {
+            bytes32 sym = symbols[i];
+            uint256 pinned = pinnedPending[sym];
+            if (pinned == 0) continue;
+            bool kept;
+            for (uint256 j; j < next.length; ++j) {
+                if (next[j] == sym) {
+                    kept = true;
+                    break;
+                }
+            }
+            if (kept) continue;
+            pinnedPending[sym] = 0;
+            pinnedTotal -= pinned;
+            pendingUsdg += pinned;
+            emit PinnedReleased(sym, pinned);
+        }
     }
 
     function _setPortfolio(bytes32[] calldata symbols_, uint16[] calldata weights_) internal {
@@ -143,6 +171,12 @@ contract CreatorAccount {
             uint256 amount = fromWeighted + pinned;
             if (amount == 0) continue;
 
+            address token = ITipRouter(router).tokenOf(sym);
+            if (token == address(0)) {
+                emit Held(sym, amount, 402); // nothing to buy it with
+                continue;
+            }
+
             (bool allow, uint16 reason) = signal.check(sym);
             if (!allow) {
                 emit Held(sym, amount, reason);
@@ -155,7 +189,6 @@ contract CreatorAccount {
                 pinnedTotal -= pinned;
             }
 
-            address token = ITipRouter(router).tokenOf(sym);
             usdg.forceApprove(address(venue), amount);
             uint256 out = venue.swapExactUsdgForStock(token, amount, 0, address(this));
             emit Bought(sym, amount, out, 0);
@@ -197,7 +230,8 @@ contract CreatorAccount {
             _debitPending(amount);
             usdg.safeTransfer(owner, amount);
         } else {
-            // stocks are what the lock is for
+            // the lock guards stock; treasury shares are cash in another shape
+            if (token == address(treasury)) revert WithdrawTreasuryAsCash();
             if (block.timestamp < lockUntil) revert LockNotExpired();
             IERC20(token).safeTransfer(owner, amount);
         }

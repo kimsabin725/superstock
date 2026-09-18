@@ -272,4 +272,75 @@ contract CreatorAccountTest is Base {
         assertEq(treasuryBal, 0);
         assertEq(yield_, 0);
     }
+
+    // ------------------------------------------------- portfolio changes
+
+    function test_DroppedSymbolDoesNotStrandPinnedCash() public {
+        _tip(20e6, 2); // fan pinned SPYx
+        assertEq(account.pinnedPending(SPYX), 18e6);
+
+        // creator drops SPYx and goes all-in on NVDAx
+        bytes32[] memory syms = new bytes32[](1);
+        uint16[] memory w = new uint16[](1);
+        syms[0] = NVDAX;
+        w[0] = 10000;
+        CreatorConfig memory cfg = _defaultConfig();
+        cfg.symbols = syms;
+        cfg.weightsBps = w;
+        vm.prank(creator);
+        account.setConfig(cfg);
+
+        assertEq(account.pinnedPending(SPYX), 0, "pin released");
+        assertEq(account.pendingUsdg(), 18e6, "cash went back to the pool");
+
+        (, uint256 pending,,) = account.statement();
+        assertEq(pending, 18e6, "statement still adds up");
+        assertEq(pending, usdg.balanceOf(address(account)), "books match the balance");
+
+        account.executeBuys();
+        assertGt(nvda.balanceOf(address(account)), 0, "and it is still spendable");
+    }
+
+    function test_UnregisteredSymbolIsHeldNotReverted() public {
+        bytes32 ghost = keccak256("GHOSTx");
+        bytes32[] memory syms = new bytes32[](2);
+        uint16[] memory w = new uint16[](2);
+        syms[0] = NVDAX;
+        syms[1] = ghost;
+        w[0] = 5000;
+        w[1] = 5000;
+        CreatorConfig memory cfg = _defaultConfig();
+        cfg.symbols = syms;
+        cfg.weightsBps = w;
+        CreatorAccount acct = CreatorAccount(router.createCreator(keccak256("@typo"), cfg));
+
+        // a signal exists for the ghost symbol, but no token was ever registered
+        _setOpen(ghost);
+        vm.prank(fan);
+        router.tip(PLATFORM, keccak256("@typo"), 20e6, bytes32(0), 0);
+
+        acct.executeBuys(); // must not revert
+        assertGt(nvda.balanceOf(address(acct)), 0, "the good half still bought");
+        assertEq(acct.pendingUsdg(), 9e6, "the bad half is just held");
+    }
+
+    function test_TreasurySharesAreNotLockedStock() public {
+        CreatorConfig memory cfg = _defaultConfig();
+        cfg.sweepToTreasury = true;
+        CreatorAccount acct = CreatorAccount(router.createCreator(keccak256("@parked"), cfg));
+        _setClosed(NVDAX);
+        _setClosed(SPYX);
+        vm.prank(fan);
+        router.tip(PLATFORM, keccak256("@parked"), 100e6, bytes32(0), 0);
+        acct.sweepIdle();
+
+        vm.prank(creator);
+        vm.expectRevert(CreatorAccount.WithdrawTreasuryAsCash.selector);
+        acct.withdraw(address(treasury), 1);
+
+        // the cash route works and pulls the position back out
+        vm.prank(creator);
+        acct.withdraw(address(usdg), 90e6);
+        assertEq(usdg.balanceOf(creator), 90e6);
+    }
 }

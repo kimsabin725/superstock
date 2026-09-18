@@ -41,7 +41,27 @@ treasury; no contract logic changes, only addresses.
 
 ## Deployed — X Layer testnet (chain 1952)
 
-See `deployments.1952.json`.
+See `deployments.1952.json`. Two keys, on purpose: the keeper signs the tape and
+the marks and holds nothing else, while the contracts' owner is a separate
+address that never signs on a schedule.
+
+## Known limits
+
+We would rather you read these here than find them yourself.
+
+1. **The stand-ins are stand-ins.** On testnet the stablecoin, the stock wrappers,
+   the swap venue and the treasury vault are ours. Only the signals are real.
+2. **Buys carry no slippage bound.** Against a fixed-price venue that is exact;
+   against a real pool it is not, and a minimum-out has to be set before any of
+   this touches mainnet.
+3. **One keeper.** If it stops, every buy holds — that is the designed behaviour,
+   and it is tested — but nothing buys until it is back.
+4. **The streaming overlay is our own mock.** We have not integrated with any
+   platform. The registration transaction behind it is real.
+5. **Most names have no on-chain oracle.** Chainlink covers 13 xStocks on X Layer;
+   the other 764 fall back to the issuer's own mark, which is a single source.
+6. **Dividends are recorded, not reconciled.** The keeper writes what it observed
+   so the statement can show it; it does not prove the rebase against balances.
 
 ## Build
 

@@ -27,7 +27,8 @@ contract Deploy is Script {
 
         MockERC20 usdg = new MockERC20("Mock USDG", "mUSDG", 6);
         TapeSignal signal = new TapeSignal(keeper);
-        MockAMM amm = new MockAMM(address(usdg), keeper);
+        // Seed the venue ourselves, then hand the keys to the keeper.
+        MockAMM amm = new MockAMM(address(usdg), me);
         MockTreasury treasury = new MockTreasury(IERC20(address(usdg)));
         TipRouter router =
             new TipRouter(address(usdg), address(amm), address(signal), address(treasury), keeper);
@@ -39,6 +40,8 @@ contract Deploy is Script {
             router.registerSymbol(keccak256(bytes(TICKERS[i])), address(t));
             amm.setPrice(address(t), PRICES_E8[i]);
         }
+
+        amm.setKeeper(keeper);
 
         // Demo platforms: one that takes a cut, one for a bare profile link.
         router.registerPlatform(keccak256("orbit"), me, 1000);

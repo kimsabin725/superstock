@@ -1,17 +1,17 @@
 "use client";
 
 import { useAccount, useReadContract, useWriteContract } from "wagmi";
-import { formatUnits } from "viem";
 import { ABI, ADDR, REASONS, explorerAddr } from "@/lib/chain";
-import { shares, usd, useCreatorAccount, useStatement, useTape, TICKER_BY_ID } from "@/lib/hooks";
+import { shares, usd, useCreatorAccount, useNow, useStatement, useTape, TICKER_BY_ID } from "@/lib/hooks";
 import { TapeStrip } from "./TapeStrip";
 
 export function CreatorDashboard({ handle }: { handle: string }) {
   const { address } = useAccount();
-  const account = useCreatorAccount(handle);
+  const { account, loading } = useCreatorAccount(handle);
   const { positions, pending, treasury, yieldEarned } = useStatement(account);
   const tape = useTape();
-  const { writeContract, isPending } = useWriteContract();
+  const { writeContract, isPending, error } = useWriteContract();
+  const now = useNow();
 
   const { data: lockUntil } = useReadContract({
     address: account, abi: ABI.CreatorAccount, functionName: "lockUntil",
@@ -30,11 +30,12 @@ export function CreatorDashboard({ handle }: { handle: string }) {
     query: { enabled: !!account, refetchInterval: 6000 },
   });
 
+  if (loading) return <div className="card p-6 text-[14px] text-inkdim">Looking up {handle}…</div>;
   if (!account) return <div className="card p-6 text-[14px] text-inkdim">No account for {handle}.</div>;
 
   const isOwner = !!address && !!owner && address.toLowerCase() === (owner as string).toLowerCase();
   const lockDate = lockUntil ? new Date(Number(lockUntil) * 1000) : undefined;
-  const locked = lockDate ? lockDate.getTime() > Date.now() : false;
+  const locked = lockDate && now !== undefined ? lockDate.getTime() > now : undefined;
   const tickers = positions.map((p) => TICKER_BY_ID[p.symbolId.toLowerCase()] ?? "?");
 
   return (
@@ -99,7 +100,11 @@ export function CreatorDashboard({ handle }: { handle: string }) {
             <p className="mt-2 text-[12.5px] leading-relaxed text-inkdim">
               Cash is never locked. Stock is locked until{" "}
               <span className="text-ink">{lockDate?.toLocaleDateString() ?? "—"}</span>
-              {locked ? " — the creator set that themselves, and it can only be extended." : " — the lock has passed."}
+              {locked === undefined
+                ? "."
+                : locked
+                  ? " — the creator set that themselves, and it can only be extended."
+                  : " — the lock has passed."}
             </p>
             <div className="mt-4 flex gap-2">
               <button
@@ -127,6 +132,11 @@ export function CreatorDashboard({ handle }: { handle: string }) {
             {!isOwner && (
               <p className="mt-3 text-[12px] text-inkdim">
                 Connect the creator&apos;s wallet to withdraw. Anyone may trigger a buy.
+              </p>
+            )}
+            {error && (
+              <p className="mt-3 text-[12px] text-hold">
+                {error.message.split("\n")[0]}
               </p>
             )}
           </div>

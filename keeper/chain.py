@@ -45,16 +45,23 @@ class Chain:
         return n
 
     def send(self, fn) -> str:
-        tx = fn.build_transaction({
-            "from": self.acct.address,
-            "nonce": self._next_nonce(),
-            "gasPrice": int(self.w3.eth.gas_price * 1.2),
-        })
-        signed = self.acct.sign_transaction(tx)
-        h = self.w3.eth.send_raw_transaction(signed.raw_transaction)
-        receipt = self.w3.eth.wait_for_transaction_receipt(h, timeout=120)
+        """Any failure hands the nonce back to the node. Holding on to a local
+        count after a tx that never landed would leave every later transaction
+        stuck behind a gap."""
+        try:
+            tx = fn.build_transaction({
+                "from": self.acct.address,
+                "nonce": self._next_nonce(),
+                "gasPrice": int(self.w3.eth.gas_price * 1.2),
+            })
+            signed = self.acct.sign_transaction(tx)
+            h = self.w3.eth.send_raw_transaction(signed.raw_transaction)
+            receipt = self.w3.eth.wait_for_transaction_receipt(h, timeout=120)
+        except Exception:
+            self._nonce = None
+            raise
         if receipt.status != 1:
-            self._nonce = None  # resync after a failure
+            self._nonce = None
             raise RuntimeError(f"tx reverted: {h.hex()}")
         return h.hex()
 

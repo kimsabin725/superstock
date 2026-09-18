@@ -13,6 +13,7 @@ import {MockERC20} from "../src/mocks/MockERC20.sol";
 contract FirstTip is Script {
     function run() external {
         uint256 pk = vm.envUint("DEPLOYER_PK");
+        uint256 keeperPk = vm.envUint("KEEPER_PK");
         address me = vm.addr(pk);
 
         string memory j = vm.readFile("deployments.1952.json");
@@ -25,9 +26,8 @@ contract FirstTip is Script {
         bytes32 CREATOR = keccak256("@indiemusician");
         bytes32 PLATFORM = keccak256("orbit");
 
-        vm.startBroadcast(pk);
-
         // 1. keeper publishes the tape: both names open, price fresh
+        vm.startBroadcast(keeperPk);
         bytes32[] memory ids = new bytes32[](2);
         TapeSignal.Signal[] memory sigs = new TapeSignal.Signal[](2);
         ids[0] = NVDAX;
@@ -42,6 +42,9 @@ contract FirstTip is Script {
             });
         }
         signal.setBatch(ids, sigs);
+        vm.stopBroadcast();
+
+        vm.startBroadcast(pk);
 
         // 2. creator onboards: half NVDAx, half SPYx, locked a year
         address account = router.accounts(CREATOR);
