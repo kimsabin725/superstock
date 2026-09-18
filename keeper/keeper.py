@@ -34,6 +34,14 @@ POOL = ["NVDAx", "TSLAx", "SPYx", "AAPLx", "COINx"]
 INTERVALS = {"assets": 60, "halts": 300, "corporate_actions": 300, "prices": 60, "buys": 300}
 US_MARKET_HALT_POLL = 30  # the halt feed matters most while New York is open
 
+# The contract holds everything once a signal is older than its maxSignalAge
+# (900s). We refresh well inside that, and otherwise only write when something
+# actually moved — an unchanged tape is not worth a transaction.
+HEARTBEAT = 300
+
+# Don't pay gas to move a mark by a fraction of a cent.
+PRICE_DEADBAND_BPS = 10
+
 health = {"loops": {}, "last_tx": None, "errors": []}
 
 
@@ -149,7 +157,7 @@ class Keeper:
 
     # ------------------------------------------------------------- writing
 
-    def publish(self) -> None:
+    def publish(self, force: bool = False) -> bool:
         """Push only what changed. A symbol we did not manage to read is left
         alone: its observedAt goes stale and the contract holds it by itself."""
         t = int(now().timestamp())
@@ -171,11 +179,12 @@ class Keeper:
             sigs.append((session, halt, ca_at, price_at, t))
             self.state.save(sym, session, halt, ca_at, price_at)
 
-        if not ids:
-            return
+        if not ids or (not changed and not force):
+            return False
         tx = self.chain.send(self.chain.signal.functions.setBatch(ids, sigs))
         health["last_tx"] = tx
-        log("published", symbols=len(ids), changed=changed, tx=tx)
+        log("published", symbols=len(ids), changed=changed, heartbeat=force and not changed, tx=tx)
+        return True
 
     def loop_prices(self) -> None:
         stocks, prices, seen = [], [], {}
@@ -185,7 +194,8 @@ class Keeper:
                 continue
             e8 = int(round(q * 1e8))
             seen[sym] = q
-            if self.state.last_price(sym) == e8:
+            prev = self.state.last_price(sym)
+            if prev and abs(e8 - prev) * 10_000 <= PRICE_DEADBAND_BPS * prev:
                 continue
             stocks.append(Web3.to_checksum_address(self.chain.token_of(symbol_id(sym))))
             prices.append(e8)
@@ -269,6 +279,7 @@ def main() -> None:
     due = {name: 0.0 for name in order}
 
     k.discover_accounts()
+    last_publish = 0.0
 
     while True:
         for name in order:
@@ -286,7 +297,8 @@ def main() -> None:
             due[name] = time.time() + interval
 
         try:
-            k.publish()
+            if k.publish(force=time.time() - last_publish > HEARTBEAT):
+                last_publish = time.time()
         except Exception as e:
             log("publish_error", error=repr(e))
             health["errors"] = (health["errors"] + [f"publish: {e!r}"])[-10:]
