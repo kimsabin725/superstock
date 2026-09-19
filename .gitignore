@@ -13,3 +13,5 @@ keeper/keeper.out
 keeper/keeper.err
 web/.next/
 web/node_modules/
+__pycache__/
+*.pyc

@@ -10,6 +10,7 @@ Run:  python keeper/keeper.py         (add --once to do a single pass)
 from __future__ import annotations
 
 import argparse
+import concurrent.futures as cf
 import datetime as dt
 import json
 import os
@@ -232,9 +233,15 @@ class Keeper:
         return True
 
     def loop_prices(self) -> None:
+        # Read the five marks at once. Served one after another they cost more
+        # than the loop's own interval whenever the issuer is slow, so the loop
+        # fell behind exactly when it most needed to keep up.
+        with cf.ThreadPoolExecutor(max_workers=len(POOL)) as pool:
+            quotes = dict(zip(POOL, pool.map(src.fetch_price, POOL)))
+
         stocks, prices, seen = [], [], {}
         for sym in POOL:
-            q = src.fetch_price(sym)
+            q = quotes[sym]
             if q is None:
                 continue
             e8 = int(round(q * 1e8))
@@ -249,12 +256,17 @@ class Keeper:
             stocks.append(token)
             prices.append(e8)
             self.state.save_price(sym, e8)
+        # Name what we could not read. The issuer returns no quote once the
+        # underlying market closes, which is the tape telling the truth — but it
+        # looks identical to an outage unless we write down which symbols and
+        # what session they were in.
+        unquoted = {s: self.sessions.get(s) for s in POOL if quotes[s] is None}
         if stocks:
             tx = self.chain.send(self.chain.amm.functions.setPrices(stocks, prices))
             health["last_tx"] = tx
-            log("prices", pushed=len(stocks), quotes=seen, tx=tx)
+            log("prices", pushed=len(stocks), quotes=seen, unquoted=unquoted, tx=tx)
         else:
-            log("prices", pushed=0, quotes=seen)
+            log("prices", pushed=0, quotes=seen, unquoted=unquoted)
 
     def _anything_buyable(self) -> bool:
         return any(

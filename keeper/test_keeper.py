@@ -9,6 +9,7 @@ Run: .venv/bin/python keeper/test_keeper.py
 from __future__ import annotations
 
 import datetime as dt
+from zoneinfo import ZoneInfo
 import pathlib
 import sys
 import time
@@ -157,8 +158,12 @@ def main() -> int:
     ok &= check("a scheduled row left in the past is ignored", "TSLAx" not in out)
 
     # 7. a halt clears on its published resumption time, never on vanishing
-    past_halt = {"resumption_date": (now - dt.timedelta(hours=1)).strftime("%m/%d/%Y"),
-                 "resumption_trade_time": "09:30:00"}
+    # Both halves have to come off the same clock. Dating this from UTC while
+    # hardcoding an ET wall time made the pair land in the future for most of
+    # the day, so the check only passed after 13:30 UTC.
+    past_et = (now - dt.timedelta(hours=1)).astimezone(ZoneInfo("America/New_York"))
+    past_halt = {"resumption_date": past_et.strftime("%m/%d/%Y"),
+                 "resumption_trade_time": past_et.strftime("%H:%M:%S")}
     open_halt = {"resumption_date": "", "resumption_trade_time": ""}
     ok &= check("a halt with no resumption time stays a halt", not src.resumed(open_halt, now))
     ok &= check("a halt past its resumption time clears", src.resumed(past_halt, now))

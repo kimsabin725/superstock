@@ -11,6 +11,8 @@ import xml.etree.ElementTree as ET
 from zoneinfo import ZoneInfo
 
 import requests
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
 
 XSTOCKS = "https://api.xstocks.fi/api/v2/public"
 HALTS_RSS = "https://www.nasdaqtrader.com/rss.aspx?feed=tradehalts"
@@ -45,8 +47,30 @@ def normalize_ticker(t: str) -> str:
     return t.strip().upper().replace(".", "/")
 
 
+# The issuer answers a quote in well under a second while New York is open and
+# takes 20+ seconds once it closes, which sat right on top of a flat 20s timeout
+# and turned every after-hours read into a failure. Separate the two budgets:
+# a connection that will not open is dead, a slow answer is just slow.
+CONNECT_TIMEOUT, READ_TIMEOUT = 10, 45
+
+_session = requests.Session()
+_session.mount("https://", HTTPAdapter(
+    max_retries=Retry(
+        total=3, backoff_factor=1.5,
+        # Retry a refused connection or a server that says it is busy, but not
+        # a slow answer: on a 60s loop, four 45s reads in a row would block
+        # every other source behind this one for three minutes.
+        read=0,
+        status_forcelist=(429, 500, 502, 503, 504),
+        allowed_methods=("GET",),
+    ),
+    pool_maxsize=16,
+))
+
+
 def _get(url: str, **params):
-    r = requests.get(url, params=params or None, timeout=20)
+    r = _session.get(url, params=params or None,
+                     timeout=(CONNECT_TIMEOUT, READ_TIMEOUT))
     r.raise_for_status()
     return r.json()
 
@@ -101,7 +125,7 @@ def fetch_exchange_halts() -> dict[str, dict]:
     disappearing is not the same as trading resuming. Resumption is read from
     the resumption time, never from absence.
     """
-    r = requests.get(HALTS_RSS, timeout=20)
+    r = _session.get(HALTS_RSS, timeout=(CONNECT_TIMEOUT, READ_TIMEOUT))
     r.raise_for_status()
     root = ET.fromstring(r.content)
     halts: dict[str, dict] = {}
@@ -194,7 +218,9 @@ def fetch_price(symbol: str) -> float | None:
     X Layer — which is 93% of them."""
     try:
         d = _get(f"{XSTOCKS}/assets/{symbol}/price-data")
-    except requests.HTTPError:
+    except requests.RequestException:
+        # One unreachable symbol must not cost us the other four. The caller
+        # reads this as 'no mark', which ages out on its own.
         return None
     q = d.get("quote")
     return float(q) if q is not None else None
