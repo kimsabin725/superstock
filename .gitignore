@@ -15,3 +15,5 @@ web/.next/
 web/node_modules/
 __pycache__/
 *.pyc
+script/remind.err.log
+script/remind.sh
