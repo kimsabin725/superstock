@@ -2,7 +2,7 @@
 
 import { useQuery } from "@tanstack/react-query";
 import { createPublicClient, http, parseAbiItem, formatUnits } from "viem";
-import { ABI, ADDR, FROM_BLOCK, xlayerTestnet } from "@/lib/chain";
+import { ABI, ADDR, xlayerTestnet } from "@/lib/chain";
 import { id, TICKER_BY_ID } from "@/lib/hooks";
 
 /** The piece a platform drops into a broadcast: transparent, no chrome, reads
@@ -14,27 +14,6 @@ const client = createPublicClient({ chain: xlayerTestnet, transport: http() });
 // This RPC answers eth_getLogs for 100 blocks at a time. Asking for the whole
 // chain fails outright, so the range is walked in windows the node will answer,
 // and only ever forward: what we already read stays read.
-const WINDOW = 100n;
-
-type Scan = { to: bigint; logs: unknown[] };
-const seen = new Map<string, Scan>();
-
-async function logsSince(key: string, from: bigint, head: bigint, fetch: (a: bigint, b: bigint) => Promise<unknown[]>) {
-  const prev = seen.get(key);
-  let start = prev ? prev.to + 1n : from;
-  const out = prev ? prev.logs.slice() : [];
-  while (start <= head) {
-    const end = start + WINDOW - 1n > head ? head : start + WINDOW - 1n;
-    out.push(...(await fetch(start, end)));
-    // Bank each window as it lands. Saving only at the end meant a scan that
-    // took longer than the refresh interval restarted forever and never
-    // reached the newest tip.
-    seen.set(key, { to: end, logs: out.slice() });
-    start = end + 1n;
-  }
-  return out;
-}
-
 const TIPPED = parseAbiItem(
   "event Tipped(bytes32 indexed platformId, bytes32 indexed creatorId, address indexed fan, uint256 amount, uint256 fee, uint8 symbolChoice, bytes32 msgHash, uint256 tipId)",
 );
@@ -51,6 +30,50 @@ type Card = {
   fills: Fill[];
 };
 
+const WINDOW = 100n;
+// An overlay shows what just happened, so it reads backwards from the tip of the
+// chain and stops as soon as it has enough. Walking forward from the deployment
+// block was fine on day one and hopeless by day three: X Layer had produced
+// 150,000 blocks by then, which is 1,500 requests before the first card appears.
+const CARDS = 6;
+const WINDOWS_PER_TICK = 20n; // ~2,000 blocks per refresh, then further back if needed
+
+type Scan<T> = { floor: bigint; logs: T[] };
+const scans = new Map<string, Scan<never>>();
+
+async function recentLogs<T extends { blockNumber: bigint | null }>(
+  key: string,
+  head: bigint,
+  enough: (logs: T[]) => boolean,
+  fetch: (a: bigint, b: bigint) => Promise<T[]>,
+): Promise<T[]> {
+  const prev = scans.get(key) as Scan<T> | undefined;
+  let floor = prev ? prev.floor : head + 1n;
+  const logs = prev ? prev.logs.slice() : [];
+
+  for (let i = 0n; i < WINDOWS_PER_TICK && floor > 0n && !enough(logs); i++) {
+    const end = floor - 1n;
+    const start = end >= WINDOW ? end - WINDOW + 1n : 0n;
+    logs.unshift(...(await fetch(start, end)));
+    floor = start;
+    scans.set(key, { floor, logs: logs.slice() } as Scan<never>);
+  }
+
+  // anything newer than where we started reading is picked up on every tick
+  if (prev) {
+    const top = logs.length ? (logs[logs.length - 1].blockNumber ?? 0n) + 1n : head;
+    let start = top;
+    while (start <= head) {
+      const end = start + WINDOW - 1n > head ? head : start + WINDOW - 1n;
+      logs.push(...(await fetch(start, end)));
+      start = end + 1n;
+    }
+    scans.set(key, { floor, logs: logs.slice() } as Scan<never>);
+  }
+
+  return logs;
+}
+
 export function Overlay({ handle }: { handle: string }) {
   const { data } = useQuery({
     queryKey: ["overlay", handle],
@@ -66,22 +89,32 @@ export function Overlay({ handle }: { handle: string }) {
 
       const head = await client.getBlockNumber();
 
-      const tips = (await logsSince(`tips:${handle}`, FROM_BLOCK, head, (a, b) =>
-        client.getLogs({
-          address: ADDR.TipRouter,
-          event: TIPPED,
-          args: { creatorId: id(handle) },
-          fromBlock: a,
-          toBlock: b,
-        }),
-      )) as Awaited<ReturnType<typeof client.getLogs<typeof TIPPED>>>;
+      type TipLog = Awaited<ReturnType<typeof client.getLogs<typeof TIPPED>>>[number];
+      const tips = await recentLogs<TipLog>(
+        `tips:${handle}`,
+        head,
+        (l) => l.length >= CARDS,
+        (a, b) =>
+          client.getLogs({
+            address: ADDR.TipRouter,
+            event: TIPPED,
+            args: { creatorId: id(handle) },
+            fromBlock: a,
+            toBlock: b,
+          }),
+      );
 
+      type BuyLog = Awaited<ReturnType<typeof client.getLogs<typeof BOUGHT>>>[number];
       const live = account && account !== "0x0000000000000000000000000000000000000000";
-      const buys = live
-        ? ((await logsSince(`buys:${account}`, FROM_BLOCK, head, (a, b) =>
-            client.getLogs({ address: account, event: BOUGHT, fromBlock: a, toBlock: b }),
-          )) as Awaited<ReturnType<typeof client.getLogs<typeof BOUGHT>>>)
-        : [];
+      let buys: BuyLog[] = [];
+      if (live) {
+        buys = await recentLogs<BuyLog>(
+          `buys:${account}`,
+          head,
+          (l) => l.length >= CARDS * 2,
+          (a, b) => client.getLogs({ address: account, event: BOUGHT, fromBlock: a, toBlock: b }),
+        );
+      }
 
       // A tip split across two names produces two buys, and showing one of them
       // would be a half-truth. Each tip claims the buys that happened after it
@@ -89,11 +122,12 @@ export function Overlay({ handle }: { handle: string }) {
       const ordered = tips.slice().sort((a, b) => Number(a.blockNumber! - b.blockNumber!));
       return ordered
         .map((t, i): Card => {
-          const next = ordered[i + 1]?.blockNumber;
+          const next = ordered[i + 1]?.blockNumber ?? undefined;
           const fills = buys
             .filter(
               (b) =>
-                b.blockNumber! >= t.blockNumber! && (next === undefined || b.blockNumber! < next),
+                b.blockNumber! >= t.blockNumber! &&
+                (next === undefined || next === null || b.blockNumber! < next),
             )
             .map((b) => ({
               ticker: TICKER_BY_ID[b.args.symbolId!.toLowerCase()] ?? "?",
@@ -102,7 +136,7 @@ export function Overlay({ handle }: { handle: string }) {
           return { tipId: t.args.tipId!, fan: t.args.fan!, amount: t.args.amount!, fills };
         })
         .reverse()
-        .slice(0, 6);
+        .slice(0, CARDS);
     },
   });
 

@@ -382,6 +382,34 @@ contract CreatorAccountTest is Base {
         vm.expectRevert();
         account.executeBuys();
     }
+
+    // ------------------------------------------- why a buy was held
+
+    function test_ClosedMarketIsReportedAsClosedNotAsMissingPrice() public {
+        // a weekend: the issuer stops quoting, because the market is shut
+        _setSignal(NVDAX, 2, 0, 0, 0, uint40(vm.getBlockTimestamp()));
+        (bool allow, uint16 reason) = signal.check(NVDAX);
+        assertFalse(allow);
+        assertEq(reason, 100, "the cause is the closed market, not the absent quote");
+    }
+
+    function test_OpenMarketWithNoQuoteStillSaysNoQuote() public {
+        _setSignal(NVDAX, 0, 0, 0, 0, uint40(vm.getBlockTimestamp()));
+        (, uint16 reason) = signal.check(NVDAX);
+        assertEq(reason, 402, "with the market open, a missing quote is the real problem");
+    }
+
+    function test_OpenMarketWithAStaleQuoteSaysStale() public {
+        _setSignal(NVDAX, 0, 0, 0, uint40(vm.getBlockTimestamp() - 2 hours), uint40(vm.getBlockTimestamp()));
+        (, uint16 reason) = signal.check(NVDAX);
+        assertEq(reason, 400);
+    }
+
+    function test_AHaltOutranksTheSession() public {
+        _setSignal(NVDAX, 2, 201, 0, 0, uint40(vm.getBlockTimestamp()));
+        (, uint16 reason) = signal.check(NVDAX);
+        assertEq(reason, 201, "a halt is more specific than a closed market");
+    }
 }
 
 /// @dev Stands in for a mainnet router that calls back into the account.

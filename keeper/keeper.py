@@ -363,7 +363,11 @@ def main() -> None:
 
     log("start", keeper=chain.acct.address, balance_okb=round(chain.balance_okb(), 6), pool=POOL)
 
-    order = ["accounts", "assets", "halts", "corporate_actions", "prices", "sweep", "buys"]
+    # Read the world, tell the chain what we saw, and only then act on it.
+    # Deciding whether to park or to buy from an on-chain tape we are about to
+    # replace means every decision is one pass behind what we already know.
+    READ = ["accounts", "assets", "halts", "corporate_actions", "prices"]
+    ACT = ["sweep", "buys"]
     runners = {
         "accounts": k.discover_accounts,
         "assets": k.loop_assets,
@@ -373,12 +377,12 @@ def main() -> None:
         "sweep": k.loop_sweep,
         "buys": k.loop_buys,
     }
-    due = {name: 0.0 for name in order}
+    due = {name: 0.0 for name in INTERVALS}
 
     last_publish = 0.0
 
-    while True:
-        for name in order:
+    def run_due(names: list[str]) -> None:
+        for name in names:
             if time.time() < due[name]:
                 continue
             try:
@@ -392,12 +396,17 @@ def main() -> None:
                 interval = US_MARKET_HALT_POLL
             due[name] = time.time() + interval
 
+    while True:
+        run_due(READ)
+
         try:
             if k.publish(force=time.time() - last_publish > HEARTBEAT):
                 last_publish = time.time()
         except Exception as e:
             log("publish_error", error=repr(e))
             health["errors"] = (health["errors"] + [f"publish: {e!r}"])[-10:]
+
+        run_due(ACT)
 
         if args.once:
             log("done_once", balance_okb=round(chain.balance_okb(), 6))

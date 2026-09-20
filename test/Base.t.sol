@@ -41,7 +41,8 @@ abstract contract Base is Test {
         nvda = new MockERC20("Mock NVDAx", "mNVDAx", 18);
         spy = new MockERC20("Mock SPYx", "mSPYx", 18);
 
-        signal = new TapeSignal(keeper);
+        signal = new TapeSignal();
+        signal.setKeeper(keeper);
         amm = new MockAMM(address(usdg), keeper);
         treasury = new MockTreasury(IERC20(address(usdg)));
         router = new TipRouter(address(usdg), address(amm), address(signal), address(treasury), keeper);

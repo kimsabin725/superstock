@@ -26,7 +26,7 @@ contract Deploy is Script {
         vm.startBroadcast(pk);
 
         MockERC20 usdg = new MockERC20("Mock USDG", "mUSDG", 6);
-        TapeSignal signal = new TapeSignal(keeper);
+        TapeSignal signal = new TapeSignal();
         // Seed the venue ourselves, then hand the keys to the keeper.
         MockAMM amm = new MockAMM(address(usdg), me);
         MockTreasury treasury = new MockTreasury(IERC20(address(usdg)));
@@ -41,6 +41,7 @@ contract Deploy is Script {
             amm.setPrice(address(t), PRICES_E8[i]);
         }
 
+        signal.setKeeper(keeper);
         amm.setKeeper(keeper);
 
         // Demo platforms: one that takes a cut, one for a bare profile link.

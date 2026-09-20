@@ -47,10 +47,14 @@ contract TapeSignal {
         _;
     }
 
-    constructor(address keeper_) {
+    /// @dev Deploys owned and signed by whoever sent it, then hands the signing
+    /// key over with `setKeeper` — the same shape as the venue, so a deployment
+    /// never has a moment where nobody can write and never needs the keeper's
+    /// key present at deploy time.
+    constructor() {
         owner = msg.sender;
-        keeper = keeper_;
-        emit KeeperSet(keeper_);
+        keeper = msg.sender;
+        emit KeeperSet(msg.sender);
     }
 
     function setKeeper(address keeper_) external onlyOwner {
@@ -90,12 +94,16 @@ contract TapeSignal {
             if (block.timestamp >= lo && block.timestamp <= ca + caWindow) return (false, 300);
         }
 
-        if (s.priceUpdatedAt == 0) return (false, 402);
-        if (block.timestamp > uint256(s.priceUpdatedAt) + maxPriceAge) return (false, 400);
-
+        // A shut market is why there is no price, not the other way round. Asked
+        // on a Sunday, this contract used to answer "no price available", which
+        // is true and useless. The session is the cause, so the session answers.
         if (s.session == SESSION_CLOSED) return (false, 100);
         if (s.session == SESSION_LUNCH) return (false, 102);
         if (s.session == SESSION_UNKNOWN) return (false, 110);
+
+        if (s.priceUpdatedAt == 0) return (false, 402);
+        if (block.timestamp > uint256(s.priceUpdatedAt) + maxPriceAge) return (false, 400);
+
         if (s.session == SESSION_EXTENDED) return (true, 101);
 
         return (true, 0);
