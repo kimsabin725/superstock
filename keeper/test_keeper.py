@@ -47,7 +47,7 @@ class FakeContract:
 
 
 class FakeChain:
-    onchain = {"session": 0, "halt": 0, "ca_at": 0}
+    onchain = {"session": 0, "halt": 0, "ca_at": 0, "price_at": 1}
     price = 0
 
     def onchain_signal(self, sid):
@@ -204,14 +204,26 @@ def main() -> int:
 
     # 12a. a redeployed venue must not inherit a mark the keeper merely remembers
     k = fresh_keeper()
-    k.chain.onchain = {"session": 2, "halt": 0, "ca_at": 0}   # chain says closed
+    k.chain.onchain = {"session": 2, "halt": 0, "ca_at": 0, "price_at": 1}  # chain says closed
     k.sessions = {s: 0 for s in K.POOL}                        # we just read open
     wrote = k.publish()
     ok &= check("a signal is written when the chain disagrees", wrote)
-    k.chain.onchain = {"session": 0, "halt": 0, "ca_at": 0}
+    k.chain.onchain = {"session": 0, "halt": 0, "ca_at": 0, "price_at": 1}
     before = len(k.chain.sent)
     k.publish()
     ok &= check("and withheld when the chain already agrees", len(k.chain.sent) == before)
+
+    # 12b. a mark going stale is a change in the tape, even when nothing else moved.
+    # Comparing the second it was taken would write every minute; comparing whether
+    # there is one at all writes exactly when the answer flips.
+    k = fresh_keeper()
+    before = len(k.chain.sent)
+    k.publish()
+    ok &= check("an unchanged tape is not worth a transaction", len(k.chain.sent) == before)
+    k.price_seen_at = {s: time.time() - (K.PRICE_BUDGET + 60) for s in K.POOL}
+    ok &= check("a mark going stale is published", k.publish())
+    sigs = k.chain.sent[-1][1][1]
+    ok &= check("and it is published as no price at all", all(sig[3] == 0 for sig in sigs))
 
     # 12. parking cash the next pass would immediately un-park is pure waste
     k = fresh_keeper()
