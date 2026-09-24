@@ -7,6 +7,16 @@ stablecoin and the rest lands in the creator's own account, where it becomes the
 stocks that creator chose — but only while the underlying market is actually open.
 When it isn't, the cash waits, earns treasury yield, and buys at the next open.
 
+## Try it
+
+**https://super-stock-sbk3.vercel.app** — reading X Layer testnet, no wallet needed to look.
+
+- [A creator's tip page](https://super-stock-sbk3.vercel.app/c/@indiemusician)
+- [That creator's account](https://super-stock-sbk3.vercel.app/dashboard/@indiemusician) — holdings, cash, and the tape it is read against
+- [What a platform sees](https://super-stock-sbk3.vercel.app/platform)
+
+Tipping needs a wallet on chain 1952 and some testnet USDG; everything else reads.
+
 ## Why this is not a broker
 
 The fan sends stablecoin. The creator's own account buys, under rules the creator
