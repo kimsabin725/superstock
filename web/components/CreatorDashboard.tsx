@@ -90,7 +90,7 @@ export function CreatorDashboard({ handle }: { handle: string }) {
             <h3 className="mb-4 text-[13px] font-semibold">Cash</h3>
             <div className="grid gap-3 sm:grid-cols-3">
               <Money label="Waiting to buy" value={pending} hint="held until the market opens" />
-              <Money label="In treasuries" value={treasury} hint="earning while it waits" />
+              <Money label="Of that, in treasuries" value={treasury} hint="the same cash, earning while it waits" />
               <Money label="Yield earned" value={yieldEarned} hint="added to the next buy" good />
             </div>
           </div>
