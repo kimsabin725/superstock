@@ -44,4 +44,5 @@ interface ICreatorAccount {
     function initialize(address router_, CreatorConfig calldata cfg) external;
     function deposit(address fan, uint256 amount, uint8 symbolChoice) external;
     function tipCount() external view returns (uint256);
+    function router() external view returns (address);
 }

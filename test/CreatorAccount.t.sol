@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 pragma solidity ^0.8.26;
 
+import {Vm} from "forge-std/Vm.sol";
 import {Base} from "./Base.t.sol";
 import {CreatorAccount} from "../src/CreatorAccount.sol";
 import {CreatorConfig, Position} from "../src/Types.sol";
@@ -14,6 +15,33 @@ contract CreatorAccountTest is Base {
     }
 
     // ------------------------------------------------------------ buying
+
+    /// The record of a fill has to be readable on its own: a bot reading the log
+    /// should get what was paid per share without re-deriving it from two fields
+    /// and two different decimal counts.
+    function test_TheFillRecordsWhatWasActuallyPaidPerShare() public {
+        _tip(20e6, 0);
+        vm.recordLogs();
+        account.executeBuys();
+
+        Vm.Log[] memory logs = vm.getRecordedLogs();
+        bytes32 sig = keccak256("Bought(bytes32,uint256,uint256,uint256)");
+        uint256 seen;
+        for (uint256 i; i < logs.length; ++i) {
+            if (logs[i].topics.length == 0 || logs[i].topics[0] != sig) continue;
+            (uint256 usdgIn, uint256 tokensOut, uint256 priceE8) =
+                abi.decode(logs[i].data, (uint256, uint256, uint256));
+            assertGt(tokensOut, 0, "a fill with no shares is not a fill");
+            assertEq(priceE8, (usdgIn * 1e20) / tokensOut, "price is the fill, not a quote");
+            // NVDAx is marked at $180 and SPYx at $560, each less a 10bp spread
+            assertTrue(
+                (priceE8 > 180e8 && priceE8 < 181e8) || (priceE8 > 560e8 && priceE8 < 561e8),
+                "and it lands where the mark says it should"
+            );
+            ++seen;
+        }
+        assertEq(seen, 2, "both legs of the portfolio reported");
+    }
 
     function test_WeightedBuyWhenMarketOpen() public {
         _tip(20e6, 0); // 18 USDG after the platform cut, split 50/50
