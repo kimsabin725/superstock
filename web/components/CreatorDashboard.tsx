@@ -99,7 +99,13 @@ export function CreatorDashboard({ handle }: { handle: string }) {
             <h3 className="text-[13px] font-semibold">Withdraw</h3>
             <p className="mt-2 text-[12.5px] leading-relaxed text-inkdim">
               Cash is never locked. Stock is locked until{" "}
-              <span className="text-ink">{lockDate?.toLocaleDateString() ?? "—"}</span>
+              <span className="text-ink">
+                {lockDate?.toLocaleDateString("en-US", {
+                  year: "numeric",
+                  month: "short",
+                  day: "numeric",
+                }) ?? "—"}
+              </span>
               {locked === undefined
                 ? "."
                 : locked
