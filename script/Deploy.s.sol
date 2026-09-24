@@ -54,6 +54,8 @@ contract Deploy is Script {
 
         vm.stopBroadcast();
 
+        _writeDeployment(address(usdg), address(signal), address(amm), address(treasury), address(router), stocks, me, keeper);
+
         console.log("USDG     ", address(usdg));
         console.log("TapeSignal", address(signal));
         console.log("MockAMM  ", address(amm));
@@ -62,5 +64,39 @@ contract Deploy is Script {
         for (uint256 i; i < 5; ++i) {
             console.log(TICKERS[i], stocks[i]);
         }
+        console.log("wrote deployments.1952.json");
+    }
+
+    /// @dev The addresses belong in the file the keeper and the web app read, and
+    /// they belong there without anyone retyping them. Copied by hand, this is
+    /// the step that leaves a frontend pointing at contracts nobody deployed.
+    function _writeDeployment(
+        address usdg,
+        address signal,
+        address amm,
+        address treasury,
+        address router,
+        address[] memory stocks,
+        address deployer,
+        address keeper
+    ) internal {
+        string memory o = "deployment";
+        vm.serializeAddress(o, "TapeSignal", signal);
+        vm.serializeAddress(o, "MockAMM", amm);
+        vm.serializeAddress(o, "MockTreasury", treasury);
+        vm.serializeAddress(o, "TipRouter", router);
+        vm.serializeAddress(o, "USDG", usdg);
+        for (uint256 i; i < 5; ++i) {
+            vm.serializeAddress(o, TICKERS[i], stocks[i]);
+        }
+        vm.serializeUint(o, "_chainId", block.chainid);
+        vm.serializeString(o, "_rpc", "https://testrpc.xlayer.tech");
+        vm.serializeString(o, "_explorer", "https://www.oklink.com/x-layer-testnet");
+        vm.serializeAddress(o, "_deployer", deployer);
+        vm.serializeAddress(o, "_keeper", keeper);
+        // Everything worth reading happened at or after this block, so the log
+        // scans have somewhere to start that is not the genesis of the chain.
+        string memory out = vm.serializeUint(o, "_fromBlock", block.number);
+        vm.writeJson(out, "./deployments.1952.json");
     }
 }

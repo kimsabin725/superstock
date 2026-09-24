@@ -46,6 +46,9 @@ contract CreatorAccount {
     uint256 private _entered;
 
     event Deposited(address indexed fan, uint256 amount, uint8 symbolChoice, uint256 tipCount);
+    /// @param priceRefE8 what the account actually paid per share, 8 decimals —
+    /// derived from the fill rather than quoted beforehand, so the record cannot
+    /// disagree with the trade it describes.
     event Bought(bytes32 indexed symbolId, uint256 usdgIn, uint256 tokensOut, uint256 priceRefE8);
     event Held(bytes32 indexed symbolId, uint256 amount, uint16 reason);
     event Swept(uint256 amount, uint256 shares);
@@ -209,7 +212,9 @@ contract CreatorAccount {
 
             usdg.forceApprove(address(venue), amount);
             uint256 out = venue.swapExactUsdgForStock(token, amount, 0, address(this));
-            emit Bought(sym, amount, out, 0);
+            // usdg carries 6 decimals and the wrappers 18, so 1e20 is what turns
+            // paid-over-received into a price with 8.
+            emit Bought(sym, amount, out, out == 0 ? 0 : (amount * 1e20) / out);
         }
     }
 

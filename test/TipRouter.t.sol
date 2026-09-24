@@ -167,6 +167,22 @@ contract TipRouterTest is Base {
         router.reassignCreator(keccak256("@contested"), address(0xdead));
     }
 
+    function test_ReassignOnlyToAnAccountThisRouterMade() public {
+        CreatorConfig memory squatter = _defaultConfig();
+        squatter.owner = fan;
+        _newCreator(keccak256("@contested"), squatter);
+
+        // a plain address, a contract that is not one of ours, and nothing at all
+        vm.expectRevert(TipRouter.NotOurAccount.selector);
+        router.reassignCreator(keccak256("@contested"), address(0xdead));
+
+        vm.expectRevert(TipRouter.NotOurAccount.selector);
+        router.reassignCreator(keccak256("@contested"), address(usdg));
+
+        vm.expectRevert(TipRouter.NotOurAccount.selector);
+        router.reassignCreator(keccak256("@contested"), address(0));
+    }
+
     function test_OnlyRouterOwnerReassigns() public {
         CreatorConfig memory cfg = _defaultConfig();
         cfg.owner = fan;

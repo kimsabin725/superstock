@@ -63,6 +63,7 @@ contract TipRouter {
     error ZeroAmount();
     error OwnerMustBeSender();
     error CreatorHasHistory();
+    error NotOurAccount();
 
     modifier onlyOwner() {
         if (msg.sender != owner) revert NotOwner();
@@ -120,10 +121,17 @@ contract TipRouter {
     /// @notice Undo a squatted handle — and only a squatted one. Once a single
     /// tip has landed the binding is frozen, so this can never redirect money
     /// anyone has actually sent.
+    /// @dev The replacement has to be an account this router made. Without that
+    /// check the owner could point a handle at any address at all, and the next
+    /// tip would be handed to something that is not a creator account.
     function reassignCreator(bytes32 creatorId, address newAccount) external onlyOwner {
         address current = accounts[creatorId];
         if (current == address(0)) revert CreatorUnknown();
         if (ICreatorAccount(current).tipCount() != 0) revert CreatorHasHistory();
+        if (newAccount == address(0)) revert NotOurAccount();
+        (bool ok, bytes memory data) =
+            newAccount.staticcall(abi.encodeWithSelector(ICreatorAccount.router.selector));
+        if (!ok || data.length != 32 || abi.decode(data, (address)) != address(this)) revert NotOurAccount();
         accounts[creatorId] = newAccount;
         emit CreatorReassigned(creatorId, current, newAccount);
     }
