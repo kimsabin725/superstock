@@ -92,12 +92,6 @@ class State:
         self.db.execute("CREATE TABLE IF NOT EXISTS prices (symbol TEXT PRIMARY KEY, price_e8 INT)")
         self.db.commit()
 
-    def last(self, symbol: str) -> tuple | None:
-        r = self.db.execute(
-            "SELECT session, halt, ca_at FROM published WHERE symbol=?", (symbol,)
-        ).fetchone()
-        return r
-
     def save(self, symbol: str, session: int, halt: int, ca_at: int, price_at: int) -> None:
         self.db.execute(
             "INSERT INTO published VALUES (?,?,?,?,?) ON CONFLICT(symbol) DO UPDATE SET "
@@ -105,10 +99,6 @@ class State:
             (symbol, session, halt, ca_at, price_at),
         )
         self.db.commit()
-
-    def last_price(self, symbol: str) -> int | None:
-        r = self.db.execute("SELECT price_e8 FROM prices WHERE symbol=?", (symbol,)).fetchone()
-        return r[0] if r else None
 
     def save_price(self, symbol: str, price_e8: int) -> None:
         self.db.execute(
@@ -219,7 +209,15 @@ class Keeper:
             seen = self.price_seen_at.get(sym, 0.0)
             price_at = int(seen) if wall - seen <= PRICE_BUDGET else 0
             onchain = self.chain.onchain_signal(symbol_id(sym))
-            if (onchain["session"], onchain["halt"], onchain["ca_at"]) != (session, halt, ca_at):
+            # Whether there is a usable mark is part of the tape; the second it
+            # was taken is not, or a fresh reading every minute would be a
+            # transaction every minute. So compare having a price, not its age.
+            if (onchain["session"], onchain["halt"], onchain["ca_at"], onchain["price_at"] == 0) != (
+                session,
+                halt,
+                ca_at,
+                price_at == 0,
+            ):
                 changed.append(sym)
             ids.append(symbol_id(sym))
             sigs.append((session, halt, ca_at, price_at, t))
