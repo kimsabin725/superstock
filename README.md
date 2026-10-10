@@ -85,13 +85,14 @@ We would rather you read these here than find them yourself.
 ```
 cp .env.example .env            # two testnet keys; the faucet funds them
 forge test                      # contracts
-python keeper/test_keeper.py    # what the keeper does when its feeds fail (offline)
+pip install -r keeper/requirements.txt
+python3 keeper/test_keeper.py   # what the keeper does when its feeds fail (offline)
 
 forge script script/Deploy.s.sol   --rpc-url $XLAYER_TESTNET_RPC --broadcast
 node script/sync-addresses.mjs     # hand the new addresses to the web app
 forge script script/FirstTip.s.sol --rpc-url $XLAYER_TESTNET_RPC --broadcast
 
-python keeper/keeper.py         # reads the tape, writes it, batches the buys
+python3 keeper/keeper.py        # reads the tape, writes it, batches the buys
 cd web && pnpm install && pnpm dev
 ```
 
