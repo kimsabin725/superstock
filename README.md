@@ -2,6 +2,8 @@
 
 Turn creator tips into tokenized stocks on X Layer.
 
+Built solo for OKX Dev Day 2026 (submitted 2026-09-24, remote track). Contracts run on X Layer testnet only.
+
 A fan tips in stablecoin. In the same transaction the platform's cut leaves as
 stablecoin and the rest lands in the creator's own account, where it becomes the
 stocks that creator chose — but only while the underlying market is actually open.

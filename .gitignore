@@ -17,3 +17,4 @@ __pycache__/
 *.pyc
 script/remind.err.log
 script/remind.sh
+!.env.example

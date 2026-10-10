@@ -215,7 +215,7 @@ def next_corporate_action(events: list[dict], now: dt.datetime) -> dict[str, dic
 
 def fetch_price(symbol: str) -> float | None:
     """Issuer mark. Used as the fallback for names Chainlink does not cover on
-    X Layer — which is 93% of them."""
+    X Layer — most of them (README, Known limits 5)."""
     try:
         d = _get(f"{XSTOCKS}/assets/{symbol}/price-data")
     except requests.RequestException:
