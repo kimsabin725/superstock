@@ -1,5 +1,4 @@
-// The web app ships the deployment it was built against. Copying by hand is how
-// a frontend ends up pointing at contracts nobody deployed any more.
+// Copy deployments into web/ so the frontend never points at stale contracts.
 import { copyFileSync, readFileSync } from "node:fs";
 const src = "deployments.1952.json";
 const dst = "web/lib/deployments.json";
