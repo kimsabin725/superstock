@@ -1,5 +1,9 @@
 # Super Stock
 
+- **Problem:** fan tips arrive as stablecoin, and turning them into the stock a creator chose is only sound while the underlying market is actually open — not when it is closed, halted, inside a corporate-action window, or its price is stale.
+- **Built:** a tip router and per-creator account on X Layer testnet that, in one transaction, sends the platform's cut as stablecoin and buys the creator's chosen stock, or holds the cash with an on-chain reason code when the keeper-written market signal says no.
+- **Proven:** 55 Foundry tests plus offline keeper failure checks (`keeper/test_keeper.py`); live at https://super-stock-sbk3.vercel.app, reading the testnet deployment.
+
 Turn creator tips into tokenized stocks on X Layer.
 
 Built solo for OKX Dev Day 2026 (submitted 2026-09-24, remote track). Contracts run on X Layer testnet only.
